@@ -1,0 +1,37 @@
+version: '3'
+services:
+  gowitness:
+    build: ./gowitness
+    working_dir: /dist
+    command: ./main
+    hostname: gowitness0001
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASS=somepassword
+      - REDIS_DB=0
+    networks:
+      default:
+        aliases:
+          - edge1
+    ports:
+      - 8080:8080
+    depends_on:
+      - redis
+
+  redis:
+    image: 'redis:latest'
+    command: redis-server --requirepass somepassword
+    environment:
+      - REDIS_APPENDONLY=yes
+      - REDIS_APPENDFSYNC=always
+    volumes:
+      - ./redis-data:/data
+    deploy:
+      replicas: 1
+    networks:
+      default:
+        aliases:
+          - redis
+    ports:
+      - 6379:6379
