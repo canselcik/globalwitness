@@ -1,37 +1,41 @@
-version: '3'
+version: '3.3'
+
+volumes:
+  pgdata: {}
+
 services:
+  psql:
+    image: postgres:latest
+    restart: always
+    ports:
+      - 5432:5432
+    networks:
+      default:
+        aliases:
+          - psqlserver
+    environment:
+      POSTGRES_PASSWORD: 'postgres'
+    volumes:
+      - type: bind
+        source: ./pgdata
+        target: /var/lib/postgresql/data
+
   gowitness:
     build: ./gowitness
     working_dir: /dist
     command: ./main
+    restart: always
     hostname: gowitness0001
+    expose: 
+      - 8080
     environment:
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - REDIS_PASS=somepassword
-      - REDIS_DB=0
+      - POSTGRES_HOST=psqlserver
+      - POSTGRES_PASS=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=globalwitness
     networks:
       default:
         aliases:
           - edge1
-    ports:
-      - 8080:8080
     depends_on:
-      - redis
-
-  redis:
-    image: 'redis:latest'
-    command: redis-server --requirepass somepassword
-    environment:
-      - REDIS_APPENDONLY=yes
-      - REDIS_APPENDFSYNC=always
-    volumes:
-      - ./redis-data:/data
-    deploy:
-      replicas: 1
-    networks:
-      default:
-        aliases:
-          - redis
-    ports:
-      - 6379:6379
+      - psql
