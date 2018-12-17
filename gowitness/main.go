@@ -42,7 +42,7 @@ func main() {
 		rand.Shuffle(len(nodes), func(i, j int) {
 			nodes[i], nodes[j] = nodes[j], nodes[i]
 		})
-		for i := 0; i < 1000; i++ {
+		for i := 0; i < 5; i++ {
 			handler := handlers.MakeBitcoinHandler(&nodes[i], db)
 			_ = handler.Async(&wg)
 		}
