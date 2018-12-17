@@ -16,6 +16,7 @@ services:
     environment:
       POSTGRES_PASSWORD: 'postgres'
     volumes:
+      - "/etc/localtime:/etc/localtime:ro"
       - type: bind
         source: ./pgdata
         target: /var/lib/postgresql/data
@@ -33,6 +34,8 @@ services:
       - POSTGRES_PASS=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_DB=globalwitness
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
     networks:
       default:
         aliases:

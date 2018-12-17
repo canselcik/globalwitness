@@ -54,6 +54,10 @@ func (handler *BitcoinHandler) Run() error {
 	handler.peerCfg.Listeners.OnTx = func(p *peer.Peer, msg *wire.MsgTx) {
 		log.Println("MsgTx:", *msg)
 	}
+	handler.peerCfg.Listeners.OnBlock = func(p *peer.Peer, msg *wire.MsgBlock, buf []byte) {
+		log.Println("MsgBlock:", len(buf), "hash:", msg.BlockHash().String(), "prev:", msg.Header.PrevBlock.String())
+
+	}
 	handler.peerCfg.Listeners.OnVersion = func(p *peer.Peer, msg *wire.MsgVersion) *wire.MsgReject {
 		now := time.Now()
 		handler.nodeInfo.LastSession = &now
@@ -83,7 +87,11 @@ func (handler *BitcoinHandler) Run() error {
 				break
 				//log.Println("->Tx", inv.Hash.String())
 			case wire.InvTypeBlock:
-				log.Println("->Block", inv.Hash.String())
+				log.Println("->Block", inv.Hash.String(), "from", handler.nodeInfo.ConnString)
+
+				req := wire.NewMsgGetData()
+				req.AddInvVect(inv)
+				p.QueueMessage(req, nil)
 			case wire.InvTypeError:
 				log.Println("->Error", inv.Hash.String())
 			case wire.InvTypeFilteredBlock:

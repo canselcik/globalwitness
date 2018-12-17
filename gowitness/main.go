@@ -41,7 +41,7 @@ func main() {
 		nodes[i], nodes[j] = nodes[j], nodes[i]
 	})
 
-	maxPeers := 1000
+	maxPeers := 100
 	guard := make(chan struct{}, maxPeers)
 	for _, node := range nodes {
 		// Block if at maxPeers
