@@ -48,12 +48,12 @@ func main() {
 		guard <- struct{}{}
 		go func(node common.NodeInfo) {
 			handler := handlers.MakeBitcoinHandler(&node, db)
-			err := handler.Run()
-			term := "nil"
-			if err != nil {
-				term = err.Error()
-			}
-			log.Println("BitcoinHandler for", node.ConnString, "ended with:", term)
+			_ = handler.Run()
+			//term := "nil"
+			//if err != nil {
+			//	term = err.Error()
+			//}
+			//log.Println("BitcoinHandler for", node.ConnString, "ended with:", term)
 			<-guard
 		}(node)
 	}

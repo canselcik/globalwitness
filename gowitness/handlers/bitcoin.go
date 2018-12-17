@@ -52,7 +52,7 @@ func (handler *BitcoinHandler) Run() error {
 		handler.onAddrHandler(p, msg)
 	}
 	handler.peerCfg.Listeners.OnTx = func(p *peer.Peer, msg *wire.MsgTx) {
-		//log.Println("MsgTx:", *msg)
+		log.Println("MsgTx:", *msg)
 	}
 	handler.peerCfg.Listeners.OnVersion = func(p *peer.Peer, msg *wire.MsgVersion) *wire.MsgReject {
 		now := time.Now()
@@ -61,6 +61,7 @@ func (handler *BitcoinHandler) Run() error {
 	}
 	handler.peerCfg.Listeners.OnVerAck = func(p *peer.Peer, msg *wire.MsgVerAck) {
 		updated, err := handler.db.UpdateAllNode(handler.nodeInfo)
+		log.Println("Handshake completed with", handler.nodeInfo.ConnString, "(VerAck)")
 		if err != nil {
 			log.Println("Failed to update node session time:", err.Error())
 		}
@@ -69,14 +70,13 @@ func (handler *BitcoinHandler) Run() error {
 		}
 	}
 	handler.peerCfg.Listeners.OnReject = func(p *peer.Peer, msg *wire.MsgReject) {
-		//log.Println("MsgReject:", *msg)
+		log.Println("MsgReject:", *msg)
 	}
 	handler.peerCfg.Listeners.OnInv = func(p *peer.Peer, msg *wire.MsgInv) {
 		invSize := len(msg.InvList)
 		if invSize == 0 {
 			return
 		}
-		log.Println("Received", invSize, "items from", handler.nodeInfo.ConnString)
 		for _, inv := range msg.InvList {
 			switch t := inv.Type; t {
 			case wire.InvTypeTx:
@@ -103,24 +103,18 @@ func (handler *BitcoinHandler) Run() error {
 		log.Println("MsgMemPool:", msg.Command())
 	}
 
-	//log.Println("Connecting to", handler.nodeInfo.ConnString)
-
 	// Establish the connection to the peer address and mark it connected.
 	conn, err := net.DialTimeout("tcp", handler.nodeInfo.ConnString, time.Duration(5) * time.Second)
 	if err != nil {
-		//log.Println("Failed to connect to", handler.nodeInfo.ConnString, err.Error())
 		return err
 	}
 
 	p, err := peer.NewOutboundPeer(handler.peerCfg, handler.nodeInfo.ConnString)
 	if err != nil {
-		//log.Printf("Failed to create OutboundPeer configuration: %s\n", err.Error())
 		return err
 	}
 
-	log.Println("Connected to", handler.nodeInfo.ConnString)
 	handler.peerInstance = p
-
 	p.AssociateConnection(conn)
 	p.WaitForDisconnect()
 	return nil
