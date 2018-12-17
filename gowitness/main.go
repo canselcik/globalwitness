@@ -8,6 +8,7 @@ import (
 	"log"
 	"math/rand"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -17,6 +18,11 @@ func main() {
 	PHOST, PHOSTOK := os.LookupEnv("POSTGRES_HOST")
 	PPASS, PPASSOK := os.LookupEnv("POSTGRES_PASS")
 	PUSER, PUSEROK := os.LookupEnv("POSTGRES_USER")
+	MAXPEERS := os.Getenv("MAX_PEERS")
+	if MAXPEERS == "" {
+		MAXPEERS = "16"
+	}
+
 	PDB, PDBOK := os.LookupEnv("POSTGRES_DB")
 	if !PHOSTOK || !PPASSOK || !PUSEROK || !PDBOK {
 		log.Fatalf("Make sure to all the required environment variables.")
@@ -36,25 +42,31 @@ func main() {
 		log.Fatalf(err.Error())
 	}
 
-	nodes, _ := db.GetNodes()
-	rand.Shuffle(len(nodes), func(i, j int) {
-		nodes[i], nodes[j] = nodes[j], nodes[i]
-	})
+	maxPeers, err := strconv.ParseInt(MAXPEERS, 10, 32)
+	if err != nil {
+		panic(err)
+	}
 
-	maxPeers := 100
+	log.Println("MaxPeers set to", maxPeers)
 	guard := make(chan struct{}, maxPeers)
-	for _, node := range nodes {
-		// Block if at maxPeers
-		guard <- struct{}{}
-		go func(node common.NodeInfo) {
-			handler := handlers.MakeBitcoinHandler(&node, db)
-			_ = handler.Run()
-			//term := "nil"
-			//if err != nil {
-			//	term = err.Error()
-			//}
-			//log.Println("BitcoinHandler for", node.ConnString, "ended with:", term)
-			<-guard
-		}(node)
+	for {
+		nodes, _ := db.GetNodes()
+		rand.Shuffle(len(nodes), func(i, j int) {
+			nodes[i], nodes[j] = nodes[j], nodes[i]
+		})
+		for _, node := range nodes {
+			// Block if at maxPeers
+			guard <- struct{}{}
+			go func(node common.NodeInfo) {
+				handler := handlers.MakeBitcoinHandler(&node, db)
+				_ = handler.Run()
+				//term := "nil"
+				//if err != nil {
+				//	term = err.Error()
+				//}
+				//log.Println("BitcoinHandler for", node.ConnString, "ended with:", term)
+				<-guard
+			}(node)
+		}
 	}
 }

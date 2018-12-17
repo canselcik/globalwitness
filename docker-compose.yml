@@ -31,6 +31,7 @@ services:
       - 8080
     environment:
       - POSTGRES_HOST=psqlserver
+      - MAX_PEERS=1024
       - POSTGRES_PASS=postgres
       - POSTGRES_USER=postgres
       - POSTGRES_DB=globalwitness
