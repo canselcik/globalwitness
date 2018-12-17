@@ -8,18 +8,16 @@ import (
 	"time"
 )
 
-/* CREATE TABLE nodes  (id SERIAL,
-						connstring TEXT PRIMARY KEY,
-						referrer INTEGER,
-						discovery TIMESTAMP,
-						lastsession TIMESTAMP);
-*/
+// nodes table
 type NodeInfo struct {
-	Id           uint64
-	ConnString   string
-	Referrer     *uint64
-	Discovery    *time.Time
-	LastSession  *time.Time
+	Id                      int64         `db:"id"`
+	ConnString              string        `db:"connstring"`
+	Referrer                *int64       `db:"referrer"`
+	Discovery               *time.Time    `db:"discovery"`
+	LastSession             *time.Time    `db:"lastsession"`
+	Version                 *string       `db:"version"`
+	SuccessfulSessionCount  uint64        `db:"sessionok"`
+	FailedSessionCount 		uint64        `db:"sessionerr"`
 }
 
 func GenerateNonce() uint64 {

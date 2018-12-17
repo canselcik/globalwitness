@@ -6,9 +6,8 @@ import (
 )
 
 type PersistenceStore interface {
-	Connect() error
 	Ping() error
-	AddNode(addr *net.IP, port uint16, referrerId uint64) (bool, error)
+	AddNode(addr *net.IP, port uint16, referrerId int64) (*common.NodeInfo, error)
 	UpdateAllNode(node *common.NodeInfo) (bool, error)
 	GetRandomNode() (*common.NodeInfo, error)
 	GetNodes() ([]common.NodeInfo, error)

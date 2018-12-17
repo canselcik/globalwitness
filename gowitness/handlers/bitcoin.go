@@ -24,8 +24,14 @@ type BitcoinHandler struct {
 func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 	newNodes := 0
 	for _, addr := range msg.AddrList {
-		added, err := handler.db.AddNode(&addr.IP, addr.Port, handler.nodeInfo.Id)
-		if err != nil && added {
+		// TODO: TEST FIRST BEFORE ADDING TO DB
+		node, err := handler.db.AddNode(&addr.IP, addr.Port, handler.nodeInfo.Id)
+		if err != nil {
+			log.Printf("Error while adding [%s]:%d: %s\n", addr.IP, addr.Port, err.Error())
+			continue
+		}
+		if node != nil {
+			log.Printf("Added new peer with id=%d at %s\n", node.Id, node.ConnString)
 			newNodes++
 		}
 	}
@@ -59,6 +65,7 @@ func (handler *BitcoinHandler) Run() error {
 	}
 	handler.peerCfg.Listeners.OnVersion = func(p *peer.Peer, msg *wire.MsgVersion) *wire.MsgReject {
 		now := time.Now()
+		handler.nodeInfo.Version = &msg.UserAgent
 		handler.nodeInfo.LastSession = &now
 		return nil
 	}

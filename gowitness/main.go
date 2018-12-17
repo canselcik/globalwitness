@@ -50,23 +50,22 @@ func main() {
 	log.Println("MaxPeers set to", maxPeers)
 	guard := make(chan struct{}, maxPeers)
 	for {
-		nodes, _ := db.GetNodes()
-		rand.Shuffle(len(nodes), func(i, j int) {
-			nodes[i], nodes[j] = nodes[j], nodes[i]
-		})
-		for _, node := range nodes {
-			// Block if at maxPeers
-			guard <- struct{}{}
-			go func(node common.NodeInfo) {
-				handler := handlers.MakeBitcoinHandler(&node, db)
-				_ = handler.Run()
-				//term := "nil"
-				//if err != nil {
-				//	term = err.Error()
-				//}
-				//log.Println("BitcoinHandler for", node.ConnString, "ended with:", term)
-				<-guard
-			}(node)
+		node, err := db.GetRandomNode()
+		if err != nil {
+			log.Println("Error occurred while getting least recently used node:", err.Error())
+			continue
 		}
+		// Block if at maxPeers
+		guard <- struct{}{}
+		go func(node *common.NodeInfo) {
+			handler := handlers.MakeBitcoinHandler(node, db)
+			err := handler.Run()
+			if err != nil {
+				node.FailedSessionCount++
+				//log.Println("Failed at init:", err.Error())
+				_, _ = db.UpdateAllNode(node)
+			}
+			<-guard
+		}(node)
 	}
 }

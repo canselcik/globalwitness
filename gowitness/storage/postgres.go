@@ -1,24 +1,27 @@
 package storage
 
 import (
-	"database/sql"
 	"fmt"
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 	"globalwitness/common"
 	"net"
-
-	_ "github.com/lib/pq"
+	"strings"
+	"time"
 )
 
 type PostgresStorage struct {
 	connString   string
-	db           *sql.DB
+	db           *sqlx.DB
 }
 
 func (storage *PostgresStorage) Connect() error {
 	if storage.db != nil {
 		return fmt.Errorf("this PostgresStorage is already connected")
 	}
-	db, err := sql.Open("postgres", storage.connString)
+	db, err := sqlx.Open("postgres", storage.connString)
+	db.SetMaxOpenConns(64)
+	db.SetMaxIdleConns(8)
 	if err != nil {
 		return err
 	}
@@ -34,23 +37,33 @@ func (storage *PostgresStorage) Ping() error {
 	return storage.db.Ping()
 }
 
-func (storage *PostgresStorage) AddNode(addr *net.IP, port uint16, referrerId uint64) (bool, error) {
+func (storage *PostgresStorage) AddNode(addr *net.IP, port uint16, referrerId int64) (*common.NodeInfo, error) {
 	connectionErr := storage.checkConnected()
 	if connectionErr != nil {
-		return false, connectionErr
+		return nil, connectionErr
 	}
 
-	connString := fmt.Sprintf("[%s]:%d", addr.String(), port)
-	sqlStatement := "INSERT INTO nodes (connstring, referrer, discovery, lastsession) VALUES ($1, $2, NOW(), NULL) ON CONFLICT DO NOTHING"
-	res, err := storage.db.Exec(sqlStatement, connString, referrerId)
-	if err != nil {
-		return false, err
+	now := time.Now()
+	node := common.NodeInfo{
+		Id:                     -1,
+		Referrer:               &referrerId,
+		ConnString:             fmt.Sprintf("[%s]:%d", addr.String(), port),
+		Discovery:              &now,
+		Version:                nil,
+		SuccessfulSessionCount: 0,
+		FailedSessionCount:     0,
+		LastSession:            nil,
 	}
-	rowCount, err := res.RowsAffected()
+	res := storage.db.QueryRow(`INSERT INTO nodes (connstring, referrer, discovery, lastsession, version, sessionok, sessionerr) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		node.ConnString, node.Referrer, node.Discovery, node.LastSession, node.Version, node.SuccessfulSessionCount, node.FailedSessionCount)
+	err := res.Scan(&node.Id)
 	if err != nil {
-		return false, err
+		if strings.Index(err.Error(), "pq: duplicate key") == 0 {
+			return nil, nil
+		}
+		return nil, err
 	}
-	return rowCount != 0, nil
+	return &node, nil
 }
 
 // Takes the record with the ID and updates it with all the other fields
@@ -59,8 +72,8 @@ func (storage *PostgresStorage) UpdateAllNode(node *common.NodeInfo) (bool, erro
 	if connectionErr != nil {
 		return false, connectionErr
 	}
-	sqlStatement := "UPDATE nodes SET connstring = $1, referrer = $2, discovery = $3, lastsession = $4 WHERE id = $5"
-	res, err := storage.db.Exec(sqlStatement, node.ConnString, node.Referrer, node.Discovery, node.LastSession, node.Id)
+	sqlStatement := "UPDATE nodes SET connstring = $1, referrer = $2, discovery = $3, lastsession = $4, version=$5, sessionOk=$6, sessionErr=$7 WHERE id = $8"
+	res, err := storage.db.Exec(sqlStatement, node.ConnString, node.Referrer, node.Discovery, node.LastSession, node.Version, node.SuccessfulSessionCount, node.FailedSessionCount, node.Id)
 	if err != nil {
 		return false, err
 	}
@@ -77,20 +90,26 @@ func (storage *PostgresStorage) GetRandomNode() (*common.NodeInfo, error) {
 		return nil, connectionErr
 	}
 
-	rows, err := storage.db.Query("SELECT id, connstring, referrer, discovery, lastsession FROM nodes TABLESAMPLE BERNOULLI(10) LIMIT 1")
+	node := common.NodeInfo{}
+	err := storage.db.Get(&node, "SELECT * FROM nodes TABLESAMPLE BERNOULLI(10) LIMIT 1")
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	node := common.NodeInfo{}
-	if rows.Next() {
-		err = rows.Scan(&node.Id, &node.ConnString, &node.Referrer, &node.Discovery, &node.LastSession)
-		if err != nil {
-			return nil, err
-		}
-	}
 	return &node, nil
+}
+
+func (storage *PostgresStorage) GetLeastRecentlyUsedNodes(size uint) ([]common.NodeInfo, error) {
+	connectionErr := storage.checkConnected()
+	if connectionErr != nil {
+		return nil, connectionErr
+	}
+
+	nodes := []common.NodeInfo{}
+	err := storage.db.Select(&nodes, "SELECT id, connstring, referrer, discovery, lastsession, version, sessionOk, sessionErr FROM nodes ORDER BY lastsession LIMIT $1", size)
+	if err != nil {
+		return nil, err
+	}
+	return nodes, nil
 }
 
 func (storage *PostgresStorage) GetNodes() ([]common.NodeInfo, error) {
@@ -99,7 +118,7 @@ func (storage *PostgresStorage) GetNodes() ([]common.NodeInfo, error) {
 		return nil, connectionErr
 	}
 
-	rows, err := storage.db.Query("SELECT id, connstring, referrer, discovery, lastsession FROM nodes")
+	rows, err := storage.db.Query("SELECT id, connstring, referrer, discovery, lastsession, version, sessionOk, sessionErr FROM nodes")
 	if err != nil {
 		return nil, err
 	}
@@ -107,7 +126,7 @@ func (storage *PostgresStorage) GetNodes() ([]common.NodeInfo, error) {
 	nodes := make([]common.NodeInfo, 0)
 	for rows.Next() {
 		node := common.NodeInfo{}
-		err = rows.Scan(&node.Id, &node.ConnString, &node.Referrer, &node.Discovery, &node.LastSession)
+		err = rows.Scan(&node.Id, &node.ConnString, &node.Referrer, &node.Discovery, &node.LastSession, &node.Version, &node.SuccessfulSessionCount, &node.FailedSessionCount)
 		if err == nil {
 			nodes = append(nodes, node)
 		}
@@ -138,6 +157,7 @@ func (storage *PostgresStorage) checkConnected() error {
 }
 
 func MakePostgresStorage(connString string) *PostgresStorage {
+	// Unnecessary abstraction but to be fixed later
 	return &PostgresStorage{
 		connString: connString,
 		db:         nil,
