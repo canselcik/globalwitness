@@ -156,7 +156,8 @@ func MakeBitcoinHandler(node *common.NodeInfo, db storage.PersistenceStore) *Bit
 			Services:         wire.SFNodeXthin | wire.SFNodeWitness | wire.SFNodeGetUTXO |
 				wire.SFNodeCF | wire.SFNodeBloom | wire.SFNodeBit5 |
 				wire.SFNode2X | wire.SFNodeNetwork,
-			TrickleInterval:  time.Second * 10,
+			// Trickle slowly on purpose as to not contaminate the data
+			TrickleInterval:  time.Minute * 2,
 		},
 	}
 }
