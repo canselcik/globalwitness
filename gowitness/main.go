@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
+	"globalwitness/common"
 	"globalwitness/handlers"
 	"globalwitness/storage"
 	"log"
 	"math/rand"
 	"os"
-	"sync"
 	"time"
 )
 
@@ -37,15 +37,24 @@ func main() {
 	}
 
 	nodes, _ := db.GetNodes()
-	for {
-		var wg sync.WaitGroup
-		rand.Shuffle(len(nodes), func(i, j int) {
-			nodes[i], nodes[j] = nodes[j], nodes[i]
-		})
-		for i := 0; i < 5; i++ {
-			handler := handlers.MakeBitcoinHandler(&nodes[i], db)
-			_ = handler.Async(&wg)
-		}
-		wg.Wait()
+	rand.Shuffle(len(nodes), func(i, j int) {
+		nodes[i], nodes[j] = nodes[j], nodes[i]
+	})
+
+	maxPeers := 1000
+	guard := make(chan struct{}, maxPeers)
+	for _, node := range nodes {
+		// Block if at maxPeers
+		guard <- struct{}{}
+		go func(node common.NodeInfo) {
+			handler := handlers.MakeBitcoinHandler(&node, db)
+			err := handler.Run()
+			term := "nil"
+			if err != nil {
+				term = err.Error()
+			}
+			log.Println("BitcoinHandler for", node.ConnString, "ended with:", term)
+			<-guard
+		}(node)
 	}
 }

@@ -80,7 +80,8 @@ func (handler *BitcoinHandler) Run() error {
 		for _, inv := range msg.InvList {
 			switch t := inv.Type; t {
 			case wire.InvTypeTx:
-				log.Println("->Tx", inv.Hash.String())
+				break
+				//log.Println("->Tx", inv.Hash.String())
 			case wire.InvTypeBlock:
 				log.Println("->Block", inv.Hash.String())
 			case wire.InvTypeError:
@@ -105,15 +106,15 @@ func (handler *BitcoinHandler) Run() error {
 	//log.Println("Connecting to", handler.nodeInfo.ConnString)
 
 	// Establish the connection to the peer address and mark it connected.
-	conn, err := net.DialTimeout("tcp", handler.nodeInfo.ConnString, time.Duration(10) * time.Second)
+	conn, err := net.DialTimeout("tcp", handler.nodeInfo.ConnString, time.Duration(5) * time.Second)
 	if err != nil {
-		log.Println("Failed to connect to", handler.nodeInfo.ConnString, err.Error())
+		//log.Println("Failed to connect to", handler.nodeInfo.ConnString, err.Error())
 		return err
 	}
 
 	p, err := peer.NewOutboundPeer(handler.peerCfg, handler.nodeInfo.ConnString)
 	if err != nil {
-		log.Printf("Failed to create OutboundPeer configuration: %s\n", err.Error())
+		//log.Printf("Failed to create OutboundPeer configuration: %s\n", err.Error())
 		return err
 	}
 
@@ -126,8 +127,8 @@ func (handler *BitcoinHandler) Run() error {
 }
 
 func (handler *BitcoinHandler) Async(wg *sync.WaitGroup) error {
+	wg.Add(1)
 	go func() {
-		wg.Add(1)
 		_ = handler.Run()
 		wg.Done()
 	}()
