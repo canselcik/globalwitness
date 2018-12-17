@@ -55,11 +55,18 @@ func (handler *BitcoinHandler) Run() error {
 		//log.Println("MsgTx:", *msg)
 	}
 	handler.peerCfg.Listeners.OnVersion = func(p *peer.Peer, msg *wire.MsgVersion) *wire.MsgReject {
-		//log.Println("MsgVersion:", *msg)
+		now := time.Now()
+		handler.nodeInfo.LastSession = &now
 		return nil
 	}
 	handler.peerCfg.Listeners.OnVerAck = func(p *peer.Peer, msg *wire.MsgVerAck) {
-		//log.Println("MsgVerAck:", *msg)
+		updated, err := handler.db.UpdateAllNode(handler.nodeInfo)
+		if err != nil {
+			log.Println("Failed to update node session time:", err.Error())
+		}
+		if !updated {
+			log.Println("Failed to update node session time despite no errors")
+		}
 	}
 	handler.peerCfg.Listeners.OnReject = func(p *peer.Peer, msg *wire.MsgReject) {
 		//log.Println("MsgReject:", *msg)
