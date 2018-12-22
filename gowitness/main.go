@@ -1,19 +1,26 @@
 package main
 
 import (
-	"fmt"
-	"globalwitness/common"
-	"globalwitness/handlers"
-	"globalwitness/storage"
+	"globalwitness/lib"
 	"log"
-	"math/rand"
 	"os"
 	"strconv"
 	"time"
+	//"github.com/go-redis/redis"
 )
 
+
 func main() {
-	rand.Seed(time.Now().UnixNano())
+	//rand.Seed(time.Now().UnixNano())
+	//pool := newPool()
+
+	//client := redis.NewClient(&redis.Options{
+	//	Addr:     "localhost:6379",
+	//	Password: "", // no password set
+	//	DB:       0,  // use default DB
+	//})
+	//client.PoolStats()
+	//pong, err := client.Ping().Result()
 
 	PHOST, PHOSTOK := os.LookupEnv("POSTGRES_HOST")
 	PPASS, PPASSOK := os.LookupEnv("POSTGRES_PASS")
@@ -28,44 +35,22 @@ func main() {
 		log.Fatalf("Make sure to all the required environment variables.")
 	}
 
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		PHOST, 5432, PUSER, PPASS, PDB)
-	db := storage.MakePostgresStorage(psqlInfo)
-	err := db.Connect()
-
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
-
-	err = db.Ping()
-	if err != nil {
-		log.Fatalf(err.Error())
-	}
-
-	maxPeers, err := strconv.ParseInt(MAXPEERS, 10, 32)
+	maxPeers, err := strconv.ParseInt(MAXPEERS, 10, 64)
 	if err != nil {
 		panic(err)
 	}
 
-	log.Println("MaxPeers set to", maxPeers)
-	guard := make(chan struct{}, maxPeers)
-	for {
-		node, err := db.GetRandomNode()
-		if err != nil {
-			log.Println("Error occurred while getting least recently used node:", err.Error())
-			continue
-		}
-		// Block if at maxPeers
-		guard <- struct{}{}
-		go func(node *common.NodeInfo) {
-			handler := handlers.MakeBitcoinHandler(node, db)
-			err := handler.Run()
-			if err != nil {
-				node.FailedSessionCount++
-				//log.Println("Failed at init:", err.Error())
-				_, _ = db.UpdateAllNode(node)
-			}
-			<-guard
-		}(node)
+	cd := lib.MakeCoordinator("primaryCoordinator", maxPeers, lib.Database{
+		Address:  PHOST,
+		Port:     5432,
+		Name:     PDB,
+		Username: PUSER,
+		Password: PPASS,
+	})
+
+	cd.Start()
+	for cd.Status() == lib.Running {
+		log.Println("Checking on the execution:", cd.String())
+		time.Sleep(time.Second * 30)
 	}
 }

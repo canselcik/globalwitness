@@ -32,7 +32,7 @@ services:
     environment:
       - POSTGRES_HOST=globalwitness.cxl4vro2ssou.us-east-1.rds.amazonaws.com
       - MAX_PEERS=1024
-      - POSTGRES_PASS=yvpd7zt82kMk1g3Co92PVKRGjHF2FYEUi0rtr
+      - POSTGRES_PASS=yvpd7zt82kMk1g3Co92PVKRGjHF2FYEUi0rta
       - POSTGRES_USER=globalwitness
       - POSTGRES_DB=globalwitness
     volumes:
