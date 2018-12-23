@@ -22,6 +22,19 @@ func main() {
 	//client.PoolStats()
 	//pong, err := client.Ping().Result()
 
+	REDIS_URL, RURLOK := os.LookupEnv("REDIS_URL")
+	if !RURLOK {
+		log.Fatalf("Make sure REDIS_URL is set.")
+	}
+
+	r := lib.MakeRedisStorage(REDIS_URL)
+	err := r.Connect()
+	if err != nil {
+		panic(err)
+	}
+
+	err = r.Ping()
+
 	PHOST, PHOSTOK := os.LookupEnv("POSTGRES_HOST")
 	PPASS, PPASSOK := os.LookupEnv("POSTGRES_PASS")
 	PUSER, PUSEROK := os.LookupEnv("POSTGRES_USER")
