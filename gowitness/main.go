@@ -3,37 +3,20 @@ package main
 import (
 	"globalwitness/lib"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
-	//"github.com/go-redis/redis"
 )
 
-
-func main() {
-	//rand.Seed(time.Now().UnixNano())
-	//pool := newPool()
-
-	//client := redis.NewClient(&redis.Options{
-	//	Addr:     "localhost:6379",
-	//	Password: "", // no password set
-	//	DB:       0,  // use default DB
-	//})
-	//client.PoolStats()
-	//pong, err := client.Ping().Result()
-
+func initConfigs() (int64, lib.Database, lib.RedisConfig) {
+	rand.Seed(time.Now().UnixNano())
+	REDIS_PASS, RPASSOK := os.LookupEnv("REDIS_PASS")
 	REDIS_URL, RURLOK := os.LookupEnv("REDIS_URL")
-	if !RURLOK {
-		log.Fatalf("Make sure REDIS_URL is set.")
+	if !RURLOK || !RPASSOK {
+		log.Fatalf("Make sure REDIS_URL and REDIS_PASS is set.")
 	}
-
-	r := lib.MakeRedisStorage(REDIS_URL)
-	err := r.Connect()
-	if err != nil {
-		panic(err)
-	}
-
-	err = r.Ping()
 
 	PHOST, PHOSTOK := os.LookupEnv("POSTGRES_HOST")
 	PPASS, PPASSOK := os.LookupEnv("POSTGRES_PASS")
@@ -53,17 +36,44 @@ func main() {
 		panic(err)
 	}
 
-	cd := lib.MakeCoordinator("primaryCoordinator", maxPeers, lib.Database{
+	dbconfig := lib.Database{
 		Address:  PHOST,
 		Port:     5432,
 		Name:     PDB,
 		Username: PUSER,
 		Password: PPASS,
+	}
+	redisconfig := lib.RedisConfig{
+		RedisUrl: REDIS_URL,
+		Password: REDIS_PASS,
+	}
+	return maxPeers, dbconfig, redisconfig
+}
+
+
+
+func main() {
+	maxPeers, dbConfig, redisConfig := initConfigs()
+	// We ensure we have exactly MAXPEERS of these running at a time
+	cd := lib.MakeCoordinator("primaryCoordinator", maxPeers, dbConfig, redisConfig)
+	cd.Start(func(cd *lib.Coordinator) {
+		resolvedNode, err := cd.DbConn.GetRandomNode()
+		if resolvedNode == nil {
+			log.Fatalln("Failed to get a random node from storage:", err.Error())
+			return
+		}
+
+		log.Printf("Random Node from storage: %v\n", resolvedNode.ConnString)
+
+		handler := lib.MakeBitcoinHandler(resolvedNode, cd.DbConn, cd.RedisConn)
+		atomic.AddInt64(&cd.PeerCount, 1)
+		err = handler.Run()
+		if err != nil {
+			// TODO: Write to the nodehistory here about this node that it was a failure
+			log.Println("Failed connect to", resolvedNode.ConnString, "due to:", err.Error())
+		}
+		atomic.AddInt64(&cd.PeerCount, -1)
 	})
 
-	cd.Start()
-	for cd.Status() == lib.Running {
-		log.Println("Checking on the execution:", cd.String())
-		time.Sleep(time.Second * 30)
-	}
+	cd.Wait(time.Second * 30)
 }

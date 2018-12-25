@@ -5,6 +5,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/peer"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/jmoiron/sqlx/types"
 	"log"
 	"net"
 	"strconv"
@@ -16,28 +17,30 @@ import (
 type BitcoinHandler struct {
 	nodeInfo           *NodeInfo
 	db                 *PostgresStorage
+	rs                 *RedisStorage
 	peerCfg            *peer.Config
 	peerInstance       *peer.Peer
 	started            time.Time
 }
 
-// unconfirmednodes table
-type UnconfirmedNodeInfo struct {
-	ConnString string        `db:"connstring"`
-	Referrer   int64         `db:"referrer"`
-	Discovery  *time.Time    `db:"discovery"`
+// table nodehistory
+type NodeHistoryEntry struct {
+	Id                      int64               `db:"id"`
+	NodeId                  int64               `db:"nodeId"`
+	EventType               string              `db:"eventtype"`
+	Timestamp               time.Time           `db:"timestamp"`
+	Data                    types.NullJSONText  `db:"data"`
 }
 
-// nodes table
+// table nodes
 type NodeInfo struct {
-	Id                      int64         `db:"id"`
-	ConnString              string        `db:"connstring"`
-	Referrer                *int64        `db:"referrer"`
-	Discovery               *time.Time    `db:"discovery"`
-	LastSession             *time.Time    `db:"lastsession"`
-	Version                 *string       `db:"version"`
-	SuccessfulSessionCount  uint64        `db:"sessionok"`
-	FailedSessionCount 		uint64        `db:"sessionerr"`
+	Id                      int64               `db:"id"`
+	ConnString              string              `db:"connstring"`
+	Referrer                int64               `db:"referrer"`
+	Version                 string              `db:"version"`
+	Discovery               time.Time           `db:"discovery"`
+	LastSeen				time.Time           `db:"lastseen"`
+	Data                    types.NullJSONText  `db:"data"`
 }
 
 func (handler *BitcoinHandler) testNewAdvertisement(addr wire.NetAddress) {
@@ -45,6 +48,7 @@ func (handler *BitcoinHandler) testNewAdvertisement(addr wire.NetAddress) {
 		addr.Port = 8333
 	}
 
+	connstring := fmt.Sprintf("[%s]:%d", addr.IP.String(), addr.Port)
 	testCfg := peer.Config{
 		UserAgentName:    "Satoshi",
 		UserAgentVersion: "0.17.99",
@@ -57,23 +61,23 @@ func (handler *BitcoinHandler) testNewAdvertisement(addr wire.NetAddress) {
 	}
 	testCfg.Listeners.OnVersion = func(newPeer *peer.Peer, msg *wire.MsgVersion) *wire.MsgReject {
 		defer newPeer.Disconnect()
-		node, err := handler.db.AddNode(&addr.IP, addr.Port, handler.nodeInfo.Id)
+
+		now := time.Now()
+		node := NodeInfo{
+			ConnString: connstring,
+			Discovery: now,
+			LastSeen: now,
+			Version: msg.UserAgent,
+		}
+		_, err := handler.db.UpdateAllNode(&node)
 		if err != nil {
 			log.Println("Error while adding the new found and confirmed node:", err.Error())
 			return nil
 		}
-		node.Version = &msg.UserAgent
-		added, err := handler.db.UpdateAllNode(node)
-		if err != nil {
-			log.Println(err)
-		}
-		if added {
-			log.Println("NEW CONFIRMED NODE:", node.ConnString, node.Version)
-		}
 		return nil
 	}
 
-	newPeer, err := peer.NewOutboundPeer(handler.peerCfg, fmt.Sprintf("[%s]:%d", addr.IP.String(), addr.Port))
+	newPeer, err := peer.NewOutboundPeer(handler.peerCfg, connstring)
 	if err != nil {
 		return
 	}
@@ -92,14 +96,27 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 			addr.Port = 8333
 		}
 		connstring := fmt.Sprintf("[%s]:%d", addr.IP.String(), addr.Port)
-		confirmedInstance := handler.db.GetNodeByConnString(connstring)
-		if confirmedInstance == nil {
-			unconfirmedInstance := handler.db.CreateUnconfirmedNode(connstring, handler.nodeInfo.Id, time.Now())
-			if unconfirmedInstance != nil {
-				log.Println("Added new unconfirmed node:", unconfirmedInstance.ConnString)
-			}
+		instance := handler.db.GetNodeByConnString(connstring)
+
+		// Check if we already have this node
+		if instance != nil {
+			continue
 		}
+		recommendedNode, err := handler.db.AddNode(&addr.IP, addr.Port, handler.nodeInfo.Id)
+		if err != nil {
+			log.Println("Error while adding unconfirmed node:", err.Error())
+			continue
+		}
+		// Already known node
+		if recommendedNode == nil {
+			continue
+		}
+
+		// TODO: Add to nodehistory about this nodes discovery
+		// TODO: Add this node to pending nodes table
+		// TODO: Check perhaps here if this node is reachable
 		//go handler.testNewAdvertisement(*addr)
+		log.Println("Added new unconfirmed node:", recommendedNode.ConnString)
 	}
 
 	// Just tell the peer about a few nodes -- hacky for now since it isnt the focus
@@ -123,6 +140,7 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 	})
 	_ = myaddr.AddAddress(p.NA())
 
+	// TODO Have a better mechanism than disconnect after 5 mins w/o configuration
 	var doneChan chan struct{}
 	if time.Now().Sub(handler.started) > time.Minute * 5 {
 		doneChan = make(chan struct{})
@@ -150,20 +168,15 @@ func (handler *BitcoinHandler) Run() error {
 		log.Println("MsgBlock: size:", len(buf), "hash:", msg.BlockHash().String(), "timestamp:", msg.Header.Timestamp.String())
 	}
 	handler.peerCfg.Listeners.OnVersion = func(p *peer.Peer, msg *wire.MsgVersion) *wire.MsgReject {
-		now := time.Now()
-		handler.nodeInfo.Version = &msg.UserAgent
-		handler.nodeInfo.LastSession = &now
-		handler.nodeInfo.SuccessfulSessionCount++
+		handler.nodeInfo.Version = msg.UserAgent
+		handler.nodeInfo.LastSeen = time.Now()
 		return nil
 	}
 	handler.peerCfg.Listeners.OnVerAck = func(p *peer.Peer, msg *wire.MsgVerAck) {
-		updated, err := handler.db.UpdateAllNode(handler.nodeInfo)
+		_, err := handler.db.UpdateAllNode(handler.nodeInfo)
 		//log.Println("Handshake completed with", handler.nodeInfo.ConnString, "(VerAck)")
 		if err != nil {
 			log.Println("Failed to update node session time:", err.Error())
-		}
-		if !updated {
-			log.Println("Failed to update node session time despite no errors")
 		}
 	}
 	handler.peerCfg.Listeners.OnReject = func(p *peer.Peer, msg *wire.MsgReject) {
@@ -238,11 +251,12 @@ func (handler *BitcoinHandler) Stop() error {
 	return nil
 }
 
-func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage) *BitcoinHandler {
+func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage, rs *RedisStorage) *BitcoinHandler {
 	return &BitcoinHandler{
 		peerInstance:      nil,
 		nodeInfo:          node,
 		db:                db,
+		rs:                rs,
 		peerCfg:           &peer.Config{
 			UserAgentName:    "Satoshi",
 			UserAgentVersion: "0.17.99",

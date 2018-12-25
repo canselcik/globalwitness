@@ -29,6 +29,11 @@ type Database struct {
 	Name          string
 }
 
+type RedisConfig struct {
+	RedisUrl      string
+	Password      string
+}
+
 type Coordinator struct {
 	CoordinatorName   string
 	Peers             []NodeInfo
@@ -36,8 +41,10 @@ type Coordinator struct {
 	PeerCount         int64
 	ExecutionStatus   Status
 	Database
-	db                *PostgresStorage
-	guard             chan struct{}
+	RedisConfig
+	DbConn            *PostgresStorage
+	RedisConn         *RedisStorage
+	Guard             chan struct{}
 }
 
 func (cd *Coordinator) initDatabase() *PostgresStorage {
@@ -57,59 +64,39 @@ func (cd *Coordinator) initDatabase() *PostgresStorage {
 	return db
 }
 
-func (cd *Coordinator) runBitcoinHandler(node *NodeInfo) {
-	handler := MakeBitcoinHandler(node, cd.db)
-	atomic.AddInt64(&cd.PeerCount, 1)
-
-	//log.Printf("[%d/%d conns] Connecting to %s\n", atomic.LoadInt64(&cd.PeerCount), atomic.LoadInt64(&cd.MaxPeers), node.ConnString)
-
-	err := handler.Run()
-	if err != nil {
-		node.FailedSessionCount++
-		_, _ = cd.db.UpdateAllNode(node)
+func (cd *Coordinator) Wait(summaryInterval time.Duration) {
+	for cd.Status() == Running {
+		log.Println("Checking on the execution:", cd.String())
+		time.Sleep(summaryInterval)
 	}
-	atomic.AddInt64(&cd.PeerCount, -1)
-	<-cd.guard
 }
 
 // Returns true if and only if a change in ExecutionStatus occurred
-func (cd *Coordinator) Start() bool {
+func (cd *Coordinator) Start(impl func(cd *Coordinator)) bool {
 	if cd.ExecutionStatus == Running {
 		return false
 	}
 
-	cd.db = cd.initDatabase()
-
-	go func(cd *Coordinator){
-		cd.ExecutionStatus = Running
-		cd.guard = make(chan struct{}, cd.MaxPeers)
-
-		allNodes, _ := cd.db.GetNodes()
-		for i, node := range allNodes {
-			//node, err := cd.db.GetRandomNode()
-			//if err != nil {
-			//	log.Println("Error occurred while getting least recently used node:", err.Error())
-			//	continue
-			//}
-
-			// Block if at maxPeers
-			cd.guard <- struct{}{}
-			if cd.ExecutionStatus != Running {
-				break
-			}
-			go cd.runBitcoinHandler(&node)
-
-			if i % 500 == 0 {
-				log.Println("Checking on the execution:", cd.String())
-			}
-		}
-	}(cd)
-
-	// Less than ideal solution here but it works and in a safe codepath
-	for cd.ExecutionStatus != Running {
-		time.Sleep(time.Millisecond * 100)
+	cd.RedisConn = MakeRedisStorage(cd.RedisConfig.RedisUrl, cd.RedisConfig.Password)
+	err := cd.RedisConn.Connect()
+	if err != nil {
+		log.Fatalf("Unable to connect to Redis: %s\n", err.Error())
 	}
 
+	cd.DbConn = cd.initDatabase()
+
+	cd.ExecutionStatus = Running
+	cd.Guard = make(chan struct{}, cd.MaxPeers)
+
+	go func(cd *Coordinator) {
+		for cd.ExecutionStatus == Running {
+			cd.Guard <- struct{}{}
+			go func(cd *Coordinator) {
+				impl(cd)
+				<-cd.Guard
+			}(cd)
+		}
+	}(cd)
 	return true
 }
 
@@ -143,15 +130,17 @@ func (cd *Coordinator) Stop() bool {
 	return true
 }
 
-func MakeCoordinator(name string, maxPeers int64, database Database) *Coordinator {
+func MakeCoordinator(name string, maxPeers int64, database Database, redisConfig RedisConfig) *Coordinator {
 	return &Coordinator{
 		ExecutionStatus: Stopped,
 		CoordinatorName: name,
 		MaxPeers: maxPeers,
 		Peers: make([]NodeInfo, 0),
 		Database: database,
+		RedisConfig: redisConfig,
 		PeerCount: 0,
-		db: nil,
-		guard: nil,
+		DbConn: nil,
+		RedisConn: nil,
+		Guard: nil,
 	}
 }
