@@ -57,21 +57,21 @@ func main() {
 	// We ensure we have exactly MAXPEERS of these running at a time
 	cd := lib.MakeCoordinator("primaryCoordinator", maxPeers, dbConfig, redisConfig)
 	cd.Start(func(cd *lib.Coordinator) {
-		resolvedNode, err := cd.DbConn.GetRandomNode()
-		if resolvedNode == nil {
-			log.Fatalln("Failed to get a random node from storage:", err.Error())
+		randomNode := cd.DbConn.GetRandomNode()
+		if randomNode == nil {
 			return
 		}
 
-		log.Printf("Random Node from storage: %v\n", resolvedNode.ConnString)
+		log.Printf("Random Node from storage: %v\n", randomNode.ConnString)
 
-		handler := lib.MakeBitcoinHandler(resolvedNode, cd.DbConn, cd.RedisConn)
+		handler := lib.MakeBitcoinHandler(randomNode, cd.DbConn, cd.RedisConn)
 		atomic.AddInt64(&cd.PeerCount, 1)
-		err = handler.Run()
+		err := handler.Run()
 		if err != nil {
 			// TODO: Write to the nodehistory here about this node that it was a failure
-			log.Println("Failed connect to", resolvedNode.ConnString, "due to:", err.Error())
+			log.Println("Failed connect to", randomNode.ConnString, "due to:", err.Error())
 		}
+
 		atomic.AddInt64(&cd.PeerCount, -1)
 	})
 

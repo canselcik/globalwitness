@@ -69,9 +69,9 @@ func (handler *BitcoinHandler) testNewAdvertisement(addr wire.NetAddress) {
 			LastSeen: now,
 			Version: msg.UserAgent,
 		}
-		_, err := handler.db.UpdateAllNode(&node)
-		if err != nil {
-			log.Println("Error while adding the new found and confirmed node:", err.Error())
+
+		if !handler.db.UpdateAllNode(&node) {
+			log.Println("Error while adding the new found and confirmed node")
 			return nil
 		}
 		return nil
@@ -102,13 +102,9 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 		if instance != nil {
 			continue
 		}
-		recommendedNode, err := handler.db.AddNode(&addr.IP, addr.Port, handler.nodeInfo.Id)
-		if err != nil {
-			log.Println("Error while adding unconfirmed node:", err.Error())
-			continue
-		}
-		// Already known node
-		if recommendedNode == nil {
+
+		recommendedNode, discovered := handler.db.AddNode(&addr.IP, addr.Port, handler.nodeInfo.Id)
+		if recommendedNode == nil || !discovered {
 			continue
 		}
 
@@ -120,7 +116,7 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 	}
 
 	// Just tell the peer about a few nodes -- hacky for now since it isnt the focus
-	randomNode, _ := handler.db.GetRandomNode()
+	randomNode := handler.db.GetRandomNode()
 	ip, port, err := net.SplitHostPort(randomNode.ConnString)
 	if err != nil {
 		log.Println("An error occurred while splitting host-port for sending to peer:", err.Error())
@@ -173,10 +169,9 @@ func (handler *BitcoinHandler) Run() error {
 		return nil
 	}
 	handler.peerCfg.Listeners.OnVerAck = func(p *peer.Peer, msg *wire.MsgVerAck) {
-		_, err := handler.db.UpdateAllNode(handler.nodeInfo)
 		//log.Println("Handshake completed with", handler.nodeInfo.ConnString, "(VerAck)")
-		if err != nil {
-			log.Println("Failed to update node session time:", err.Error())
+		if !handler.db.UpdateAllNode(handler.nodeInfo) {
+			log.Println("Failed to update node session time for", handler.nodeInfo.ConnString)
 		}
 	}
 	handler.peerCfg.Listeners.OnReject = func(p *peer.Peer, msg *wire.MsgReject) {

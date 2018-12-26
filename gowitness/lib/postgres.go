@@ -2,8 +2,9 @@ package lib
 
 import (
 	"fmt"
-	"github.com/jmoiron/sqlx"
+	"github.com/gocraft/dbr"
 	_ "github.com/lib/pq"
+	"log"
 	"net"
 	"strings"
 	"time"
@@ -11,14 +12,14 @@ import (
 
 type PostgresStorage struct {
 	connString   string
-	db           *sqlx.DB
+	db           *dbr.Connection
 }
 
 func (storage *PostgresStorage) Connect() error {
 	if storage.db != nil {
 		return fmt.Errorf("this PostgresStorage is already connected")
 	}
-	db, err := sqlx.Open("postgres", storage.connString)
+	db, err := dbr.Open("postgres", storage.connString, nil)
 	db.SetMaxOpenConns(64)
 	db.SetMaxIdleConns(8)
 	if err != nil {
@@ -67,15 +68,22 @@ func MakePostgresStorage(connString string) *PostgresStorage {
 
 
 func (storage *PostgresStorage) GetNodeByConnString(connString string) *NodeInfo {
+	session := storage.db.NewSession(nil)
 	node := NodeInfo{}
-	err := storage.db.Get(&node, "SELECT * FROM nodes WHERE connstring = $1", connString)
+	err := session.Select("*").
+					From("nodes").
+					Where("connstring = ?", connString).
+					Limit(1).
+					LoadOne(&node)
 	if err != nil {
+		log.Printf("Error while executing SELECT in GetNodeByConnString(%s): %s\n", connString, err.Error())
+		_ = session.Close()
 		return nil
 	}
 	return &node
 }
 
-func (storage *PostgresStorage) AddNode(addr *net.IP, port uint16, referrerId int64) (*NodeInfo, error) {
+func (storage *PostgresStorage) AddNode(addr *net.IP, port uint16, referrerId int64) (*NodeInfo, bool) {
 	now := time.Now()
 	node := NodeInfo{
 		Id:                     -1,
@@ -86,44 +94,63 @@ func (storage *PostgresStorage) AddNode(addr *net.IP, port uint16, referrerId in
 		LastSeen:               now,
 	}
 
-	res := storage.db.QueryRow(`INSERT INTO nodes (connstring, referrer, discovery, lastseen, version) VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-		node.ConnString, node.Referrer, node.Discovery, node.LastSeen, node.Version)
-	err := res.Scan(&node.Id)
+	sess := storage.db.NewSession(nil)
+	tx, err := sess.Begin()
+	if err != nil {
+		log.Printf("Error while getting session in AddNode(...): %s\n", err.Error())
+		return nil, false
+	}
+	defer tx.RollbackUnlessCommitted()
+
+	err = tx.InsertInto("nodes").
+				Columns("connstring", "referrer", "discovery", "lastseen", "version").
+				Record(&node).
+				Returning("id").
+				Load(&node.Id)
 	if err != nil {
 		if strings.Index(err.Error(), "pq: duplicate key") == 0 {
-			return nil, nil
+			return &node, false
 		}
-		return nil, err
+		log.Println("Error while executing the query in AddNode(...):", err.Error())
+		return nil, false
 	}
 
-	return &node, nil
+	err = tx.Commit()
+	if err != nil {
+		log.Println("Error while executing committing the query in AddNode(...):", err.Error())
+		return nil, false
+	}
+	return &node, true
 }
 
 // Takes the record with the ID and updates it with all the other fields
-func (storage *PostgresStorage) UpdateAllNode(node *NodeInfo) (bool, error) {
-	res, err := storage.db.NamedExec("UPDATE nodes SET connstring = :connstring, referrer = :referrer, discovery = :discovery, lastseen = :lastseen, version = :version, data = :data WHERE id = :id", node)
+func (storage *PostgresStorage) UpdateAllNode(node *NodeInfo) bool {
+	session := storage.db.NewSession(nil)
+	_, err := session.Update("nodes").
+				Set("connstring", node.ConnString).
+				Set("referrer", node.Referrer).
+				Set("discovery", node.Discovery).
+				Set("lastseen", node.LastSeen).
+				Set("version", node.Version).
+				Where("id = ?", node.Id).Exec()
 	if err != nil {
-		return false, err
+		log.Println("Error while executing committing the query in UpdateAllNode(...):", err.Error())
+		return false
 	}
-	rowCount, err := res.RowsAffected()
-	if err != nil {
-		return false, err
-	}
-	return rowCount != 0, nil
+	return true
 }
 
-func (storage *PostgresStorage) GetRandomNode() (*NodeInfo, error) {
-	connectionErr := storage.checkConnected()
-	if connectionErr != nil {
-		return nil, connectionErr
-	}
-
+func (storage *PostgresStorage) GetRandomNode() *NodeInfo {
+	session := storage.db.NewSession(nil)
 	node := NodeInfo{}
-	err := storage.db.Get(&node, "SELECT * FROM nodes TABLESAMPLE BERNOULLI(10) LIMIT 1")
+	err := session.SelectBySql("SELECT * FROM nodes TABLESAMPLE BERNOULLI(10) LIMIT 1").LoadOne(&node)
+
 	if err != nil {
-		return nil, err
+		log.Printf("Error while executing SELECT in GetRandomNode(): %s\n", err.Error())
+		_ = session.Close()
+		return nil
 	}
-	return &node, nil
+	return &node
 }
 
 func (storage *PostgresStorage) GetNodes() ([]NodeInfo, error) {
