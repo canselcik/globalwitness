@@ -77,7 +77,6 @@ func (storage *PostgresStorage) GetNodeByConnString(connString string) *NodeInfo
 					LoadOne(&node)
 	if err != nil {
 		log.Printf("Error while executing SELECT in GetNodeByConnString(%s): %s\n", connString, err.Error())
-		_ = session.Close()
 		return nil
 	}
 	return &node
@@ -147,7 +146,6 @@ func (storage *PostgresStorage) GetRandomNode() *NodeInfo {
 
 	if err != nil {
 		log.Printf("Error while executing SELECT in GetRandomNode(): %s\n", err.Error())
-		_ = session.Close()
 		return nil
 	}
 	return &node
