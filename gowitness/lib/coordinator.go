@@ -2,20 +2,18 @@ package lib
 
 import (
 	"fmt"
+	"github.com/paulbellamy/ratecounter"
 	"log"
 	"sync/atomic"
 	"time"
 )
 
-type Status int
+type Status int32
 const (
 	Stopped Status = iota
 	Running
 	Paused
 )
-
-
-
 
 func (s Status) String() string {
 	return [...]string{"Stopped", "Running", "Paused"}[s]
@@ -45,6 +43,8 @@ type Coordinator struct {
 	DbConn            *PostgresStorage
 	RedisConn         *RedisStorage
 	Guard             chan struct{}
+	FailCounter       *ratecounter.RateCounter
+	AttemptCounter    *ratecounter.RateCounter
 }
 
 func (cd *Coordinator) initDatabase() *PostgresStorage {
@@ -72,7 +72,7 @@ func (cd *Coordinator) Wait(summaryInterval time.Duration) {
 }
 
 // Returns true if and only if a change in ExecutionStatus occurred
-func (cd *Coordinator) Start(impl func(cd *Coordinator)) bool {
+func (cd *Coordinator) Start() bool {
 	if cd.ExecutionStatus == Running {
 		return false
 	}
@@ -86,15 +86,30 @@ func (cd *Coordinator) Start(impl func(cd *Coordinator)) bool {
 	cd.DbConn = cd.initDatabase()
 
 	cd.ExecutionStatus = Running
-	cd.Guard = make(chan struct{}, cd.MaxPeers)
+	go func(coord *Coordinator) {
+		for {
+			currentPeerCount := atomic.LoadInt64(&coord.PeerCount)
+			if currentPeerCount >= coord.MaxPeers {
+				log.Println("Waiting 15 seconds because we are at or above MAX_PEERS.")
+				time.Sleep(time.Second * 15)
+				continue
+			}
 
-	go func(cd *Coordinator) {
-		for cd.ExecutionStatus == Running {
-			cd.Guard <- struct{}{}
-			go func(cd *Coordinator) {
-				impl(cd)
-				<-cd.Guard
-			}(cd)
+			randomNode := coord.DbConn.GetRandomNode()
+			if randomNode == nil {
+				log.Println("Got nil for random node :(")
+				continue
+			}
+			if coord.RedisConn.CheckActiveTag(randomNode.ConnString) {
+				log.Println("Skipping", randomNode.ConnString, "because it is already a peer of our network")
+				continue
+			}
+
+			log.Println("trying node", randomNode.ConnString)
+
+			handler := MakeBitcoinHandler(randomNode, coord.DbConn, coord.RedisConn)
+			coord.AttemptCounter.Incr(1)
+			go handler.Run(coord)
 		}
 	}(cd)
 	return true
@@ -105,11 +120,13 @@ func (cd *Coordinator) Status() Status {
 }
 
 func (cd *Coordinator) String() string {
-	return fmt.Sprintf("Coordinator[name=%s, status=%s, peerCount=%d, maxPeers=%d]",
+	return fmt.Sprintf("Coordinator[name=%s, status=%s, peerCount=%d, maxPeers=%d, attemptRate=%s, failRate=%s]",
 		cd.CoordinatorName,
 		cd.ExecutionStatus.String(),
 		atomic.LoadInt64(&cd.PeerCount),
-		atomic.LoadInt64(&cd.MaxPeers))
+		atomic.LoadInt64(&cd.MaxPeers),
+		cd.AttemptCounter.String(),
+		cd.FailCounter.String())
 }
 
 // Returns true if and only if a change in ExecutionStatus occurred
@@ -141,6 +158,8 @@ func MakeCoordinator(name string, maxPeers int64, database Database, redisConfig
 		PeerCount: 0,
 		DbConn: nil,
 		RedisConn: nil,
+		FailCounter: ratecounter.NewRateCounter(time.Minute),
+		AttemptCounter: ratecounter.NewRateCounter(time.Minute),
 		Guard: nil,
 	}
 }

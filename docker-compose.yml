@@ -1,25 +1,15 @@
 version: '3.3'
 
-volumes:
-  pgdata: {}
-
 services:
-  psql:
-    image: postgres:latest
-    restart: always
+  redis:
+    image: 'redis:alpine'
+    command: redis-server --requirepass foo
     ports:
-      - 5432:5432
+      - '6379:6379'
     networks:
       default:
         aliases:
-          - psqlserver
-    environment:
-      POSTGRES_PASSWORD: 'postgres'
-    volumes:
-      - "/etc/localtime:/etc/localtime:ro"
-      - type: bind
-        source: ./pgdata
-        target: /var/lib/postgresql/data
+          - redis-server
 
   gowitness:
     build: ./gowitness
@@ -30,11 +20,13 @@ services:
     expose: 
       - 8080
     environment:
-      - POSTGRES_HOST=globalwitness.cxl4vro2ssou.us-east-1.rds.amazonaws.com
-      - MAX_PEERS=1024
-      - POSTGRES_PASS=yvpd7zt82kMk1g3Co92PVKRGjHF2FYEUi0rta
-      - POSTGRES_USER=globalwitness
+      - POSTGRES_HOST=globalwitness.cw9ykmpsqcdj.us-east-2.rds.amazonaws.com
+      - POSTGRES_PASS=CIGjGP49TtmP7ngN9nRiFQjdXXFpD1UQ
       - POSTGRES_DB=globalwitness
+      - POSTGRES_USER=postgres
+      - MAX_PEERS=32
+      - REDIS_URL=redis-server:6379
+      - REDIS_PASS=foo
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
     networks:
@@ -42,4 +34,4 @@ services:
         aliases:
           - edge1
     depends_on:
-      - psql
+      - redis

@@ -20,8 +20,8 @@ func (storage *PostgresStorage) Connect() error {
 		return fmt.Errorf("this PostgresStorage is already connected")
 	}
 	db, err := dbr.Open("postgres", storage.connString, nil)
-	db.SetMaxOpenConns(64)
-	db.SetMaxIdleConns(8)
+	db.SetMaxOpenConns(128)
+	db.SetMaxIdleConns(12)
 	if err != nil {
 		return err
 	}
@@ -76,7 +76,6 @@ func (storage *PostgresStorage) GetNodeByConnString(connString string) *NodeInfo
 					Limit(1).
 					LoadOne(&node)
 	if err != nil {
-		log.Printf("Error while executing SELECT in GetNodeByConnString(%s): %s\n", connString, err.Error())
 		return nil
 	}
 	return &node
@@ -142,7 +141,7 @@ func (storage *PostgresStorage) UpdateAllNode(node *NodeInfo) bool {
 func (storage *PostgresStorage) GetRandomNode() *NodeInfo {
 	session := storage.db.NewSession(nil)
 	node := NodeInfo{}
-	err := session.SelectBySql("SELECT * FROM nodes TABLESAMPLE BERNOULLI(10) LIMIT 1").LoadOne(&node)
+	err := session.SelectBySql("SELECT * FROM nodes TABLESAMPLE BERNOULLI(1) LIMIT 1").LoadOne(&node)
 
 	if err != nil {
 		log.Printf("Error while executing SELECT in GetRandomNode(): %s\n", err.Error())

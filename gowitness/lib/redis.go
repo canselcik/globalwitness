@@ -26,8 +26,8 @@ func (storage *RedisStorage) Connect() error {
 	}
 
 	pool := redis.Pool{
-		MaxIdle:     3,
-		MaxActive:   32,
+		MaxIdle:     64,
+		MaxActive:   0,
 		Wait:        true,
 		IdleTimeout: 240 * time.Second,
 		Dial: func () (redis.Conn, error) {
@@ -231,7 +231,7 @@ func (storage *RedisStorage) getSetIntersection(s1, s2 string) ([]string, error)
 	return arr, nil
 }
 
-func (storage *RedisStorage) oterSetMembers(setname, pattern string, batchSize int, callback func(string)) error {
+func (storage *RedisStorage) iterSetMembers(setname, pattern string, batchSize int, callback func(string)) error {
 	conn := storage.db.Get()
 	defer conn.Close()
 
@@ -302,7 +302,6 @@ func (storage *RedisStorage) AcquireLock(resource string, expiryMillis int, leas
 	return err == nil
 }
 
-
 func (storage *RedisStorage) RemoveActiveTag(resource string) error {
 	return storage.Delete(fmt.Sprintf("active_%s", resource))
 }
@@ -311,5 +310,12 @@ func (storage *RedisStorage) SetActiveTag(resource string, expirySeconds int) bo
 	conn := storage.GetConn()
 	name := fmt.Sprintf("active_%s", resource)
 	_, err := conn.Do("SETEX", name, expirySeconds, 1)
+	return err == nil
+}
+
+func (storage *RedisStorage) CheckActiveTag(resource string) bool {
+	conn := storage.GetConn()
+	name := fmt.Sprintf("active_%s", resource)
+	_, err := redis.Int(conn.Do("GET", name))
 	return err == nil
 }

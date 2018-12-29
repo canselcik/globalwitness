@@ -9,7 +9,7 @@ import (
 	"log"
 	"net"
 	"strconv"
-	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,6 +21,7 @@ type BitcoinHandler struct {
 	peerCfg            *peer.Config
 	peerInstance       *peer.Peer
 	started            time.Time
+	lastActivityReport *time.Time
 }
 
 // table nodehistory
@@ -151,7 +152,7 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 	}
 }
 
-func (handler *BitcoinHandler) Run() error {
+func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 	handler.started = time.Now()
 
 	handler.peerCfg.Listeners.OnAddr = func(p *peer.Peer, msg *wire.MsgAddr) {
@@ -211,9 +212,28 @@ func (handler *BitcoinHandler) Run() error {
 	handler.peerCfg.Listeners.OnMemPool = func(p *peer.Peer, msg *wire.MsgMemPool) {
 		log.Println("MsgMemPool:", msg.Command())
 	}
+	handler.peerCfg.Listeners.OnRead = func(p *peer.Peer, bytesRead int, msg wire.Message, err error) {
+		if err != nil {
+			return
+		}
+
+		if handler.lastActivityReport == nil || time.Now().Sub(*handler.lastActivityReport) > time.Minute {
+			_ = handler.rs.SetActiveTag(handler.nodeInfo.ConnString, 120)
+			now := time.Now()
+			handler.lastActivityReport = &now
+		}
+	}
 
 	// Establish the connection to the peer address and mark it connected.
 	conn, err := net.DialTimeout("tcp", handler.nodeInfo.ConnString, time.Duration(5) * time.Second)
+	if err != nil {
+		// TODO: Write to the nodehistory here about this node that it was a failure
+		log.Println("Failed connect to", handler.nodeInfo.ConnString, "due to:", err.Error())
+		cd.FailCounter.Incr(1)
+		_ = cd.RedisConn.RemoveActiveTag(handler.nodeInfo.ConnString)
+		return err
+	}
+
 	if err != nil {
 		return err
 	}
@@ -225,16 +245,10 @@ func (handler *BitcoinHandler) Run() error {
 
 	handler.peerInstance = p
 	p.AssociateConnection(conn)
-	p.WaitForDisconnect()
-	return nil
-}
 
-func (handler *BitcoinHandler) Async(wg *sync.WaitGroup) error {
-	wg.Add(1)
-	go func() {
-		_ = handler.Run()
-		wg.Done()
-	}()
+	atomic.AddInt64(&cd.PeerCount, 1)
+	p.WaitForDisconnect()
+	atomic.AddInt64(&cd.PeerCount, -1)
 	return nil
 }
 
@@ -248,11 +262,12 @@ func (handler *BitcoinHandler) Stop() error {
 
 func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage, rs *RedisStorage) *BitcoinHandler {
 	return &BitcoinHandler{
-		peerInstance:      nil,
-		nodeInfo:          node,
-		db:                db,
-		rs:                rs,
-		peerCfg:           &peer.Config{
+		peerInstance:       nil,
+		nodeInfo:           node,
+		db:                 db,
+		rs:                 rs,
+		lastActivityReport: nil,
+		peerCfg:            &peer.Config{
 			UserAgentName:    "Satoshi",
 			UserAgentVersion: "0.17.99",
 			ChainParams:      &chaincfg.MainNetParams,
