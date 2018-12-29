@@ -35,11 +35,13 @@ func (storage *RedisStorage) Connect() error {
 		   if err != nil {
 			   return nil, err
 		   }
-		   if _, err := c.Do("AUTH", storage.password); err != nil {
-			   c.Close()
-			   return nil, err
+		   if storage.password != "" {
+			   if _, err := c.Do("AUTH", storage.password); err != nil {
+				   c.Close()
+				   return nil, err
+			   }
 		   }
-		   if _, err := c.Do("SELECT", 0); err != nil {
+			if _, err := c.Do("SELECT", 0); err != nil {
 			   c.Close()
 			   return nil, err
 		   }
