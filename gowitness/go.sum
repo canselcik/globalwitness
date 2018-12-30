@@ -1,5 +1,7 @@
 github.com/DATA-DOG/go-sqlmock v1.3.0 h1:ljjRxlddjfChBJdFKJs5LuCwCWPLaC1UZLwAo3PBBMk=
 github.com/DATA-DOG/go-sqlmock v1.3.0/go.mod h1:f/Ixk793poVmq4qj/V1dPUg2JEAKC73Q5eFN3EC/SaM=
+github.com/Pallinder/sillyname-go v0.0.0-20130730142914-97aeae9e6ba1 h1:ReSY7H5Nf08bSzShfWAUTCthIsK08iNitWGX5YFQGXE=
+github.com/Pallinder/sillyname-go v0.0.0-20130730142914-97aeae9e6ba1/go.mod h1:cTmXjiBQMtbZnpc/yLode6SPqKmzeL7xJlD+9R9zxoc=
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
 github.com/btcsuite/btcd v0.0.0-20181130015935-7d2daa5bfef2 h1:LPHpTTuR7vj3kD7YDRZnrDnFAoj1Ov4cpiO3jN8RnW4=
 github.com/btcsuite/btcd v0.0.0-20181130015935-7d2daa5bfef2/go.mod h1:Jr9bmNVGZ7TH2Ux1QuP0ec+yGgh0gE9FIlkzQiI5bR0=

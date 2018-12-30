@@ -190,7 +190,7 @@ func (storage *RedisStorage) getKeys(pattern string) ([]string, error) {
 	return keys, nil
 }
 
-func (storage *RedisStorage) getFullKeys(pattern string) ([]string, error) {
+func (storage *RedisStorage) GetFullKeys(pattern string) ([]string, error) {
 	conn := storage.db.Get()
 	defer conn.Close()
 

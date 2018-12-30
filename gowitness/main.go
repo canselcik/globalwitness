@@ -2,13 +2,15 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/dustinkirkland/golang-petname"
+	"fmt"
+	"github.com/Pallinder/sillyname-go"
 	"globalwitness/lib"
 	"log"
 	"math/rand"
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -54,7 +56,7 @@ func initConfigs() (int64, lib.Database, lib.RedisConfig) {
 
 func runApiServer(coordinator *lib.Coordinator) {
 	http.HandleFunc("/globalwitness/status", func (w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/plaintext")
+		w.Header().Set("Content-Type", "application/json")
 		if coordinator == nil {
 			w.WriteHeader(500)
 			_, _ = w.Write([]byte("{\"error\":\"coordinator is nil\"}"))
@@ -62,14 +64,44 @@ func runApiServer(coordinator *lib.Coordinator) {
 		}
 		serialized, err := json.Marshal(coordinator.Summary())
 		if err != nil {
-			w.Header().Set("Content-Type", "text/plaintext")
 			w.WriteHeader(500)
-			_, _ = w.Write([]byte(err.Error()))
+			_, _ = w.Write([]byte(fmt.Sprintf("{\"error\":\"%s\"}", err.Error())))
 		}
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(200)
 		_, _ = w.Write(serialized)
 	})
+
+	http.HandleFunc("/globalwitness/peers", func (w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if coordinator == nil {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte("{\"error\":\"coordinator is nil\"}"))
+			return
+		}
+
+		active, err := coordinator.RedisConn.GetFullKeys("active_*")
+		if err != nil {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(fmt.Sprintf("{\"error\":\"%s\"}", err.Error())))
+		}
+
+		ret := struct {
+			Info	lib.CoordinatorStateSnapshot
+			Peers   []string
+		} {
+			Info: coordinator.Summary(),
+			Peers: make([]string, 0),
+		}
+
+		for _, connstring := range active {
+			ret.Peers = append(ret.Peers, strings.Replace(connstring, "active_", "", 1))
+		}
+		serialized, err := json.Marshal(ret)
+		w.WriteHeader(200)
+		_, _ = w.Write(serialized)
+	})
+
+
 	// Low priority TODO -- make this configurable by env vars
 	log.Println("API Server begins listening.")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
@@ -78,12 +110,12 @@ func runApiServer(coordinator *lib.Coordinator) {
 }
 
 func main() {
-	instance_name := petname.Generate(2, "-")
+	instance_name := sillyname.GenerateStupidName()
 
-	log.Println("#############################")
+	log.Println("#################################")
 	log.Println("#  GlobalWitness Discovery")
 	log.Println("#  ( instance:", instance_name, ")")
-	log.Println("#############################")
+	log.Println("#################################")
 
 	maxPeers, dbConfig, redisConfig := initConfigs()
 
