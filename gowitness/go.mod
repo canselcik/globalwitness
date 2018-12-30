@@ -2,11 +2,11 @@ module globalwitness
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.3.0 // indirect
-	github.com/Jeffail/tunny v0.0.0-20181108205650-4921fff29480
 	github.com/btcsuite/btcd v0.0.0-20181130015935-7d2daa5bfef2
+	github.com/dustinkirkland/golang-petname v0.0.0-20170921220637-d3c2ba80e75e
 	github.com/gocraft/dbr v0.0.0-20181029195440-042fe86dc2da
 	github.com/gomodule/redigo v2.0.0+incompatible
-	github.com/jmoiron/sqlx v1.2.0
+	github.com/jmoiron/sqlx v1.2.0 // indirect
 	github.com/lib/pq v1.0.0
 	github.com/onsi/ginkgo v1.7.0 // indirect
 	github.com/onsi/gomega v1.4.3 // indirect

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/dustinkirkland/golang-petname"
 	"globalwitness/lib"
 	"log"
 	"math/rand"
@@ -70,17 +71,24 @@ func runApiServer(coordinator *lib.Coordinator) {
 		_, _ = w.Write(serialized)
 	})
 	// Low priority TODO -- make this configurable by env vars
+	log.Println("API Server begins listening.")
 	if err := http.ListenAndServe(":8080", nil); err != nil {
 		log.Fatalln("Failed to bind API Server to port 8080:", err.Error())
 	}
 }
 
-
 func main() {
+	instance_name := petname.Generate(2, "-")
+
+	log.Println("#############################")
+	log.Println("#  GlobalWitness Discovery")
+	log.Println("#  ( instance:", instance_name, ")")
+	log.Println("#############################")
+
 	maxPeers, dbConfig, redisConfig := initConfigs()
 
 	// We ensure we have exactly MAXPEERS of these running at a time
-	cd := lib.MakeCoordinator("primaryCoordinator", maxPeers, dbConfig, redisConfig)
+	cd := lib.MakeCoordinator(instance_name, maxPeers, dbConfig, redisConfig)
 
 	// Start HTTP server for debugging and inspection
 	go runApiServer(cd)

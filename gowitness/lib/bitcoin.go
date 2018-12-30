@@ -111,7 +111,6 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 		}
 
 		// TODO: Add to nodehistory about this nodes discovery
-		// TODO: Add this node to pending nodes table
 		// TODO: Check perhaps here if this node is reachable
 		//go handler.testNewAdvertisement(*addr)
 		log.Println("Added new unconfirmed node:", recommendedNode.ConnString)
@@ -261,6 +260,8 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 		return err
 	}
 
+	cd.SuccessCounter.Incr(1)
+
 	handler.peerInstance = p
 	p.AssociateConnection(conn)
 
@@ -277,6 +278,8 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 	)
 
 	p.WaitForDisconnect()
+
+	cd.VoluntaryDisconnectCounter.Incr(1)
 
 	// Decrementing PeerCount after disconnecting from the peer for any reason
 	atomic.AddInt64(&cd.PeerCount, -1)

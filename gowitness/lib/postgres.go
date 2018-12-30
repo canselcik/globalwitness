@@ -20,8 +20,8 @@ func (storage *PostgresStorage) Connect() error {
 		return fmt.Errorf("this PostgresStorage is already connected")
 	}
 	db, err := dbr.Open("postgres", storage.connString, nil)
-	db.SetMaxOpenConns(128)
-	db.SetMaxIdleConns(12)
+	db.SetMaxOpenConns(64)
+	db.SetMaxIdleConns(8)
 	if err != nil {
 		return err
 	}

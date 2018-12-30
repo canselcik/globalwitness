@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Keeping enum type as uint8 because simplifies atomic access
+// Keeping enum type as uint32 because simplifies atomic access
 const (
    Stopped uint32 = 0
    Paused  uint32 = 1
@@ -29,16 +29,18 @@ type RedisConfig struct {
 }
 
 type Coordinator struct {
-	CoordinatorName   string
-	Peers             []NodeInfo
-	MaxPeers 	      int64
-	PeerCount         int64
-	ExecutionStatus   uint32
-	DbConn            *PostgresStorage
-	RedisConn         *RedisStorage
-	Guard             chan struct{}
-	FailCounter       *ratecounter.RateCounter
-	AttemptCounter    *ratecounter.RateCounter
+	CoordinatorName   			 string
+	Peers             			 []NodeInfo
+	MaxPeers 	      			 int64
+	PeerCount         		 	 int64
+	ExecutionStatus   			 uint32
+	DbConn            		     *PostgresStorage
+	RedisConn         			 *RedisStorage
+	Guard             			 chan struct{}
+	FailCounter                  *ratecounter.RateCounter
+	SuccessCounter               *ratecounter.RateCounter
+	VoluntaryDisconnectCounter   *ratecounter.RateCounter
+	AttemptCounter               *ratecounter.RateCounter
 	Database
 	RedisConfig
 }
@@ -60,25 +62,22 @@ func (cd *Coordinator) initDatabase() *PostgresStorage {
 	return db
 }
 
-func (cd *Coordinator) Wait(summaryInterval time.Duration) {
-	for cd.Status() == Running {
-		log.Println("Checking on the execution:", cd.String())
-		time.Sleep(summaryInterval)
-	}
-}
-
 // Returns true if and only if a change in ExecutionStatus occurred
 func (cd *Coordinator) Run() bool {
 	if cd.ExecutionStatus == Running {
 		return false
 	}
 
+	log.Println("Coordinator started.")
+
 	// Connect to Postgres
 	cd.DbConn = cd.initDatabase()
+	log.Println("Database connection established.")
 
 	// Connect to Redis
 	cd.RedisConn = MakeRedisStorage(cd.RedisConfig.RedisUrl, cd.RedisConfig.Password)
 	cd.RedisConn.Connect()
+	log.Println("Redis connection established.")
 
 	cd.ExecutionStatus = Running
 	for atomic.LoadUint32(&cd.ExecutionStatus) == Running {
@@ -94,7 +93,6 @@ func (cd *Coordinator) Run() bool {
 			continue
 		}
 		if cd.RedisConn.CheckActiveTag(randomNode.ConnString) {
-			log.Println("Skipping", randomNode.ConnString, "because it is already a peer of our network")
 			continue
 		}
 
@@ -108,23 +106,15 @@ func (cd *Coordinator) Status() uint32 {
 	return atomic.LoadUint32(&cd.ExecutionStatus)
 }
 
-func (cd *Coordinator) String() string {
-	return fmt.Sprintf("Coordinator[name=%s, status=%s, peerCount=%d, maxPeers=%d, attemptRate=%s, failRate=%s]",
-		cd.CoordinatorName,
-		executionStatusAsString(atomic.LoadUint32(&cd.ExecutionStatus)),
-		atomic.LoadInt64(&cd.PeerCount),
-		atomic.LoadInt64(&cd.MaxPeers),
-		cd.AttemptCounter.String(),
-		cd.FailCounter.String())
-}
-
 type CoordinatorStateSnapshot struct {
-	Name           string
-	Status         string
-	PeerCount      int64
-	MaxPeers       int64
-	AttemptCounter int64
-	FailCounter    int64
+	Name                        string
+	Status                      string
+	PeerCount                   int64
+	MaxPeers                    int64
+	AttemptCounter              int64
+	FailCounter                 int64
+	VoluntaryDisconnectCounter  int64
+	SuccessCounter              int64
 }
 
 func executionStatusAsString(status uint32) string {
@@ -148,24 +138,28 @@ func (cd *Coordinator) Summary() CoordinatorStateSnapshot {
 		atomic.LoadInt64(&cd.MaxPeers),
 		cd.AttemptCounter.Rate(),
 		cd.FailCounter.Rate(),
+		cd.VoluntaryDisconnectCounter.Rate(),
+		cd.SuccessCounter.Rate(),
 	}
 }
 
 // Returns true if and only if a change in ExecutionStatus occurred
 func (cd *Coordinator) Pause() bool {
-	if cd.ExecutionStatus == Paused {
+	if atomic.LoadUint32(&cd.ExecutionStatus) == Paused {
 		return false
 	}
 
+	atomic.StoreUint32(&cd.ExecutionStatus, Paused)
 	return true
 }
 
 // Returns true if and only if a change in ExecutionStatus occurred
 func (cd *Coordinator) Stop() bool {
-	if cd.ExecutionStatus == Stopped {
+	if atomic.LoadUint32(&cd.ExecutionStatus) == Stopped {
 		return false
 	}
 
+	atomic.StoreUint32(&cd.ExecutionStatus, Stopped)
 	return true
 }
 
@@ -182,6 +176,8 @@ func MakeCoordinator(name string, maxPeers int64, database Database, redisConfig
 		RedisConn: nil,
 		FailCounter: ratecounter.NewRateCounter(time.Minute),
 		AttemptCounter: ratecounter.NewRateCounter(time.Minute),
+		SuccessCounter: ratecounter.NewRateCounter(time.Minute),
+		VoluntaryDisconnectCounter: ratecounter.NewRateCounter(time.Minute),
 		Guard: nil,
 	}
 }
