@@ -1,11 +1,12 @@
 package lib
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/peer"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/jmoiron/sqlx/types"
+	"github.com/gocraft/dbr"
 	"log"
 	"net"
 	"strconv"
@@ -27,10 +28,10 @@ type BitcoinHandler struct {
 // table nodehistory
 type NodeHistoryEntry struct {
 	Id                      int64               `db:"id"`
-	NodeId                  int64               `db:"nodeId"`
+	NodeId                  int64               `db:"nodeid"`
 	EventType               string              `db:"eventtype"`
 	Timestamp               time.Time           `db:"timestamp"`
-	Data                    types.NullJSONText  `db:"data"`
+	Data                    dbr.NullString      `db:"data"`
 }
 
 // table nodes
@@ -41,7 +42,7 @@ type NodeInfo struct {
 	Version                 string              `db:"version"`
 	Discovery               time.Time           `db:"discovery"`
 	LastSeen				time.Time           `db:"lastseen"`
-	Data                    types.NullJSONText  `db:"data"`
+	Data                    dbr.NullString      `db:"data"`
 }
 
 func (handler *BitcoinHandler) testNewAdvertisement(addr wire.NetAddress) {
@@ -152,6 +153,14 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 	}
 }
 
+type ConnectionFailureMetadata struct {
+	Output string
+}
+
+type SessionBeginMetadata struct {
+	CurrentPeerVersion string
+}
+
 func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 	handler.started = time.Now()
 
@@ -224,31 +233,54 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 		}
 	}
 
+	onConnFail := func(coord *Coordinator, eventType string, err error) {
+		coord.FailCounter.Incr(1)
+		_ = coord.RedisConn.RemoveActiveTag(handler.nodeInfo.ConnString)
+
+		msg := ConnectionFailureMetadata{Output:err.Error()}
+		serialized, _ := json.Marshal(&msg)
+		_ = cd.DbConn.AddNodeHistory(handler.nodeInfo,
+			eventType,
+			time.Now(),
+			dbr.NewNullString(serialized),
+		)
+	}
+
+	cd.AttemptCounter.Incr(1)
+
 	// Establish the connection to the peer address and mark it connected.
 	conn, err := net.DialTimeout("tcp", handler.nodeInfo.ConnString, time.Duration(5) * time.Second)
 	if err != nil {
-		// TODO: Write to the nodehistory here about this node that it was a failure
-		log.Println("Failed connect to", handler.nodeInfo.ConnString, "due to:", err.Error())
-		cd.FailCounter.Incr(1)
-		_ = cd.RedisConn.RemoveActiveTag(handler.nodeInfo.ConnString)
-		return err
-	}
-
-	if err != nil {
+		onConnFail(cd, "connect_error", err)
 		return err
 	}
 
 	p, err := peer.NewOutboundPeer(handler.peerCfg, handler.nodeInfo.ConnString)
 	if err != nil {
+		onConnFail(cd, "protocol_error", err)
 		return err
 	}
 
 	handler.peerInstance = p
 	p.AssociateConnection(conn)
 
+	// Incrementing PeerCount only after knowing this is a conforming peer
 	atomic.AddInt64(&cd.PeerCount, 1)
+
+	// Insert connection event to history
+	msg := SessionBeginMetadata{CurrentPeerVersion:handler.nodeInfo.Version}
+	serialized, _ := json.Marshal(&msg)
+	_ = cd.DbConn.AddNodeHistory(handler.nodeInfo,
+		"session_begin",
+		time.Now(),
+		dbr.NewNullString(serialized),
+	)
+
 	p.WaitForDisconnect()
+
+	// Decrementing PeerCount after disconnecting from the peer for any reason
 	atomic.AddInt64(&cd.PeerCount, -1)
+
 	return nil
 }
 

@@ -121,6 +121,58 @@ func (storage *PostgresStorage) AddNode(addr *net.IP, port uint16, referrerId in
 	return &node, true
 }
 
+
+func (storage *PostgresStorage) AddNodeHistory(node *NodeInfo, eventType string,
+	timestamp time.Time, data dbr.NullString) *NodeHistoryEntry {
+
+	entry := NodeHistoryEntry{
+		Id: -1,
+		Data: data,
+		EventType: eventType,
+		Timestamp: timestamp,
+		NodeId: node.Id,
+	}
+
+	sess := storage.db.NewSession(nil)
+	tx, err := sess.Begin()
+	if err != nil {
+		log.Printf("Error while getting session in AddNodeHistory(...): %s\n", err.Error())
+		return nil
+	}
+	defer tx.RollbackUnlessCommitted()
+
+	err = tx.InsertInto("nodehistory").Columns("nodeid", "eventtype", "timestamp", "data").Record(&entry).Returning("id").Load(&entry.Id)
+	if err != nil {
+		log.Println("Error while executing the query in AddNodeHistory(...):", err.Error())
+		return nil
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		log.Println("Error while executing committing the query in AddNodeHistory(...):", err.Error())
+		return nil
+	}
+	return &entry
+}
+
+func (storage *PostgresStorage) GetNodeHistoryByNodeId(nodeId int64, limit uint64) []NodeHistoryEntry {
+	sess := storage.db.NewSession(nil)
+	entries := make([]NodeHistoryEntry, 0)
+
+	_, err := sess.Select("*").
+		From("nodehistory").
+		Where("nodeid = ?", nodeId).
+		OrderDesc("timestamp").
+		Limit(limit).
+		Load(&entries)
+	if err != nil {
+		log.Println("Error while executing the query in GetNodeHistoryByNodeId(...):", err.Error())
+		return nil
+	}
+
+	return entries
+}
+
 // Takes the record with the ID and updates it with all the other fields
 func (storage *PostgresStorage) UpdateAllNode(node *NodeInfo) bool {
 	session := storage.db.NewSession(nil)

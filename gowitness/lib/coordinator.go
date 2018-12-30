@@ -68,7 +68,7 @@ func (cd *Coordinator) Wait(summaryInterval time.Duration) {
 }
 
 // Returns true if and only if a change in ExecutionStatus occurred
-func (cd *Coordinator) Start() bool {
+func (cd *Coordinator) Run() bool {
 	if cd.ExecutionStatus == Running {
 		return false
 	}
@@ -84,7 +84,6 @@ func (cd *Coordinator) Start() bool {
 	for atomic.LoadUint32(&cd.ExecutionStatus) == Running {
 		currentPeerCount := atomic.LoadInt64(&cd.PeerCount)
 		if currentPeerCount >= cd.MaxPeers {
-			log.Println("Waiting 15 seconds because we are at or above MAX_PEERS.")
 			time.Sleep(time.Second * 15)
 			continue
 		}
@@ -100,7 +99,6 @@ func (cd *Coordinator) Start() bool {
 		}
 
 		handler := MakeBitcoinHandler(randomNode, cd.DbConn, cd.RedisConn)
-		cd.AttemptCounter.Incr(1)
 		go handler.Run(cd)
 	}
 	return true

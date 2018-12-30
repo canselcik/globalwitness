@@ -84,5 +84,5 @@ func main() {
 
 	// Start HTTP server for debugging and inspection
 	go runApiServer(cd)
-	cd.Start()
+	cd.Run()
 }
