@@ -85,7 +85,4 @@ func main() {
 	// Start HTTP server for debugging and inspection
 	go runApiServer(cd)
 	cd.Start()
-
-	// Wait and do status reporting
-	cd.Wait(time.Second * 10)
 }

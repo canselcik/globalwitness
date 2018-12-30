@@ -20,12 +20,8 @@ func (storage *RedisStorage) GetConn() redis.Conn {
 	return storage.db.Get()
 }
 
-func (storage *RedisStorage) Connect() error {
-	if storage.db != nil {
-		return fmt.Errorf("this RedisStorage is already created")
-	}
-
-	pool := redis.Pool{
+func (storage *RedisStorage) Connect() {
+	storage.db = &redis.Pool{
 		MaxIdle:     64,
 		MaxActive:   0,
 		Wait:        true,
@@ -55,9 +51,6 @@ func (storage *RedisStorage) Connect() error {
 			return err
 		},
 	}
-
-	storage.db = &pool
-	return nil
 }
 
 func (storage *RedisStorage) Ping() error {

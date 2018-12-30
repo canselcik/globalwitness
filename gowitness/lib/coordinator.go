@@ -8,16 +8,12 @@ import (
 	"time"
 )
 
-type Status int32
+// Keeping enum type as uint8 because simplifies atomic access
 const (
-	Stopped Status = iota
-	Running
-	Paused
+   Stopped uint32 = 0
+   Paused  uint32 = 1
+   Running uint32 = 2
 )
-
-func (s Status) String() string {
-	return [...]string{"Stopped", "Running", "Paused"}[s]
-}
 
 type Database struct {
 	Address       string
@@ -37,14 +33,14 @@ type Coordinator struct {
 	Peers             []NodeInfo
 	MaxPeers 	      int64
 	PeerCount         int64
-	ExecutionStatus   Status
-	Database
-	RedisConfig
+	ExecutionStatus   uint32
 	DbConn            *PostgresStorage
 	RedisConn         *RedisStorage
 	Guard             chan struct{}
 	FailCounter       *ratecounter.RateCounter
 	AttemptCounter    *ratecounter.RateCounter
+	Database
+	RedisConfig
 }
 
 func (cd *Coordinator) initDatabase() *PostgresStorage {
@@ -77,52 +73,47 @@ func (cd *Coordinator) Start() bool {
 		return false
 	}
 
-	cd.RedisConn = MakeRedisStorage(cd.RedisConfig.RedisUrl, cd.RedisConfig.Password)
-	err := cd.RedisConn.Connect()
-	if err != nil {
-		log.Fatalf("Unable to connect to Redis: %s\n", err.Error())
-	}
-
+	// Connect to Postgres
 	cd.DbConn = cd.initDatabase()
 
+	// Connect to Redis
+	cd.RedisConn = MakeRedisStorage(cd.RedisConfig.RedisUrl, cd.RedisConfig.Password)
+	cd.RedisConn.Connect()
+
 	cd.ExecutionStatus = Running
-	go func(coord *Coordinator) {
-		for {
-			currentPeerCount := atomic.LoadInt64(&coord.PeerCount)
-			if currentPeerCount >= coord.MaxPeers {
-				log.Println("Waiting 15 seconds because we are at or above MAX_PEERS.")
-				time.Sleep(time.Second * 15)
-				continue
-			}
-
-			randomNode := coord.DbConn.GetRandomNode()
-			if randomNode == nil {
-				log.Println("Got nil for random node :(")
-				continue
-			}
-			if coord.RedisConn.CheckActiveTag(randomNode.ConnString) {
-				log.Println("Skipping", randomNode.ConnString, "because it is already a peer of our network")
-				continue
-			}
-
-			log.Println("trying node", randomNode.ConnString)
-
-			handler := MakeBitcoinHandler(randomNode, coord.DbConn, coord.RedisConn)
-			coord.AttemptCounter.Incr(1)
-			go handler.Run(coord)
+	for atomic.LoadUint32(&cd.ExecutionStatus) == Running {
+		currentPeerCount := atomic.LoadInt64(&cd.PeerCount)
+		if currentPeerCount >= cd.MaxPeers {
+			log.Println("Waiting 15 seconds because we are at or above MAX_PEERS.")
+			time.Sleep(time.Second * 15)
+			continue
 		}
-	}(cd)
+
+		randomNode := cd.DbConn.GetRandomNode()
+		if randomNode == nil {
+			log.Println("Got nil for random node")
+			continue
+		}
+		if cd.RedisConn.CheckActiveTag(randomNode.ConnString) {
+			log.Println("Skipping", randomNode.ConnString, "because it is already a peer of our network")
+			continue
+		}
+
+		handler := MakeBitcoinHandler(randomNode, cd.DbConn, cd.RedisConn)
+		cd.AttemptCounter.Incr(1)
+		go handler.Run(cd)
+	}
 	return true
 }
 
-func (cd *Coordinator) Status() Status {
-	return cd.ExecutionStatus
+func (cd *Coordinator) Status() uint32 {
+	return atomic.LoadUint32(&cd.ExecutionStatus)
 }
 
 func (cd *Coordinator) String() string {
 	return fmt.Sprintf("Coordinator[name=%s, status=%s, peerCount=%d, maxPeers=%d, attemptRate=%s, failRate=%s]",
 		cd.CoordinatorName,
-		cd.ExecutionStatus.String(),
+		executionStatusAsString(atomic.LoadUint32(&cd.ExecutionStatus)),
 		atomic.LoadInt64(&cd.PeerCount),
 		atomic.LoadInt64(&cd.MaxPeers),
 		cd.AttemptCounter.String(),
@@ -134,18 +125,31 @@ type CoordinatorStateSnapshot struct {
 	Status         string
 	PeerCount      int64
 	MaxPeers       int64
-	AttemptCounter string
-	FailCounter    string
+	AttemptCounter int64
+	FailCounter    int64
+}
+
+func executionStatusAsString(status uint32) string {
+	switch status {
+	case 0:
+		return "stopped"
+	case 1:
+		return "paused"
+	case 2:
+		return "running"
+	default:
+		return "unknown"
+	}
 }
 
 func (cd *Coordinator) Summary() CoordinatorStateSnapshot {
 	return CoordinatorStateSnapshot{
 		cd.CoordinatorName,
-		cd.ExecutionStatus.String(),
+		executionStatusAsString(atomic.LoadUint32(&cd.ExecutionStatus)),
 		atomic.LoadInt64(&cd.PeerCount),
 		atomic.LoadInt64(&cd.MaxPeers),
-		cd.AttemptCounter.String(),
-		cd.FailCounter.String(),
+		cd.AttemptCounter.Rate(),
+		cd.FailCounter.Rate(),
 	}
 }
 
