@@ -175,6 +175,15 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 	handler.peerCfg.Listeners.OnVersion = func(p *peer.Peer, msg *wire.MsgVersion) *wire.MsgReject {
 		handler.nodeInfo.Version = msg.UserAgent
 		handler.nodeInfo.LastSeen = time.Now()
+
+		// Insert connection event to history
+		event := SessionBeginMetadata{CurrentPeerVersion:handler.nodeInfo.Version}
+		serialized, _ := json.Marshal(&event)
+		_ = cd.DbConn.AddNodeHistory(handler.nodeInfo,
+			"session_begin",
+			handler.nodeInfo.LastSeen,
+			dbr.NewNullString(serialized),
+		)
 		return nil
 	}
 	handler.peerCfg.Listeners.OnVerAck = func(p *peer.Peer, msg *wire.MsgVerAck) {
@@ -267,15 +276,6 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 
 	// Incrementing PeerCount only after knowing this is a conforming peer
 	atomic.AddInt64(&cd.PeerCount, 1)
-
-	// Insert connection event to history
-	msg := SessionBeginMetadata{CurrentPeerVersion:handler.nodeInfo.Version}
-	serialized, _ := json.Marshal(&msg)
-	_ = cd.DbConn.AddNodeHistory(handler.nodeInfo,
-		"session_begin",
-		time.Now(),
-		dbr.NewNullString(serialized),
-	)
 
 	p.WaitForDisconnect()
 
