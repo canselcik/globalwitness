@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"globalwitness/lib"
 	"log"
 	"math/rand"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -49,13 +51,41 @@ func initConfigs() (int64, lib.Database, lib.RedisConfig) {
 	return maxPeers, dbconfig, redisconfig
 }
 
+func runApiServer(coordinator *lib.Coordinator) {
+	http.HandleFunc("/globalwitness/status", func (w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/plaintext")
+		if coordinator == nil {
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte("{\"error\":\"coordinator is nil\"}"))
+			return
+		}
+		serialized, err := json.Marshal(coordinator.Summary())
+		if err != nil {
+			w.Header().Set("Content-Type", "text/plaintext")
+			w.WriteHeader(500)
+			_, _ = w.Write([]byte(err.Error()))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(200)
+		_, _ = w.Write(serialized)
+	})
+	// Low priority TODO -- make this configurable by env vars
+	if err := http.ListenAndServe(":8080", nil); err != nil {
+		log.Fatalln("Failed to bind API Server to port 8080:", err.Error())
+	}
+}
 
 
 func main() {
 	maxPeers, dbConfig, redisConfig := initConfigs()
+
 	// We ensure we have exactly MAXPEERS of these running at a time
 	cd := lib.MakeCoordinator("primaryCoordinator", maxPeers, dbConfig, redisConfig)
+
+	// Start HTTP server for debugging and inspection
+	go runApiServer(cd)
 	cd.Start()
 
+	// Wait and do status reporting
 	cd.Wait(time.Second * 10)
 }

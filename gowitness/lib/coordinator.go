@@ -129,6 +129,26 @@ func (cd *Coordinator) String() string {
 		cd.FailCounter.String())
 }
 
+type CoordinatorStateSnapshot struct {
+	Name           string
+	Status         string
+	PeerCount      int64
+	MaxPeers       int64
+	AttemptCounter string
+	FailCounter    string
+}
+
+func (cd *Coordinator) Summary() CoordinatorStateSnapshot {
+	return CoordinatorStateSnapshot{
+		cd.CoordinatorName,
+		cd.ExecutionStatus.String(),
+		atomic.LoadInt64(&cd.PeerCount),
+		atomic.LoadInt64(&cd.MaxPeers),
+		cd.AttemptCounter.String(),
+		cd.FailCounter.String(),
+	}
+}
+
 // Returns true if and only if a change in ExecutionStatus occurred
 func (cd *Coordinator) Pause() bool {
 	if cd.ExecutionStatus == Paused {
