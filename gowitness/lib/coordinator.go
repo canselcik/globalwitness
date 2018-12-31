@@ -15,17 +15,21 @@ const (
    Running uint32 = 2
 )
 
-type Database struct {
+type DatabaseConfig struct {
 	Address       string
 	Port          uint16
 	Username      string
 	Password      string
 	Name          string
+	MaxOpen       int
+	MaxIdle       int
 }
 
 type RedisConfig struct {
 	RedisUrl      string
 	Password      string
+	MaxOpen       int
+	MaxIdle       int
 }
 
 type Coordinator struct {
@@ -41,15 +45,15 @@ type Coordinator struct {
 	SuccessCounter               *ratecounter.RateCounter
 	VoluntaryDisconnectCounter   *ratecounter.RateCounter
 	AttemptCounter               *ratecounter.RateCounter
-	Database
+	DatabaseConfig
 	RedisConfig
 }
 
 func (cd *Coordinator) initDatabase() *PostgresStorage {
 	db := MakePostgresStorage(fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
-		cd.Database.Address, 5432, cd.Database.Username, cd.Database.Password, cd.Database.Name))
+		cd.DatabaseConfig.Address, 5432, cd.DatabaseConfig.Username, cd.DatabaseConfig.Password, cd.DatabaseConfig.Name))
 
-	err := db.Connect()
+	err := db.Connect(cd.DatabaseConfig.MaxOpen, cd.DatabaseConfig.MaxIdle)
 	if err != nil {
 		log.Fatalf(err.Error())
 	}
@@ -163,13 +167,13 @@ func (cd *Coordinator) Stop() bool {
 	return true
 }
 
-func MakeCoordinator(name string, maxPeers int64, database Database, redisConfig RedisConfig) *Coordinator {
+func MakeCoordinator(name string, maxPeers int64, database DatabaseConfig, redisConfig RedisConfig) *Coordinator {
 	return &Coordinator{
 		ExecutionStatus: Stopped,
 		CoordinatorName: name,
 		MaxPeers: maxPeers,
 		Peers: make([]NodeInfo, 0),
-		Database: database,
+		DatabaseConfig: database,
 		RedisConfig: redisConfig,
 		PeerCount: 0,
 		DbConn: nil,

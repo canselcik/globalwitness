@@ -1,25 +1,53 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
 	"github.com/Pallinder/sillyname-go"
 	"globalwitness/lib"
 	"log"
 	"math/rand"
-	"net/http"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
-func initConfigs() (int64, lib.Database, lib.RedisConfig) {
-	rand.Seed(time.Now().UnixNano())
+func initConfigs() (int64, lib.DatabaseConfig, lib.RedisConfig, lib.APIServerConfig) {
+	API_PORT, APORTOK := os.LookupEnv("API_PORT")
+	API_BINDING, ABINDINGOK := os.LookupEnv("API_BINDING")
+	if !APORTOK {
+		log.Println("API_PORT env var is not set. Defaulting to 8080")
+		API_PORT = "8080"
+	}
+	if !ABINDINGOK {
+		log.Println("API_BINDING env var is not set. Defaulting to 0.0.0.0")
+		API_BINDING = "0.0.0.0"
+	}
+
+	REDIS_MAXOPEN, RMAXOPENOK := os.LookupEnv("REDIS_MAXOPEN")
+	REDIS_MAXIDLE, RMAXIDLEOK := os.LookupEnv("REDIS_MAXIDLE")
+	if !RMAXOPENOK {
+		log.Println("REDIS_MAXOPEN env var is not set. Defaulting to 16.")
+		REDIS_MAXOPEN = "16"
+	}
+	if !RMAXIDLEOK {
+		log.Println("REDIS_MAXIDLE env var is not set. Defaulting to 8.")
+		REDIS_MAXIDLE = "8"
+	}
+
 	REDIS_PASS, RPASSOK := os.LookupEnv("REDIS_PASS")
 	REDIS_URL, RURLOK := os.LookupEnv("REDIS_URL")
 	if !RURLOK || !RPASSOK {
 		log.Fatalf("Make sure REDIS_URL and REDIS_PASS is set.")
+	}
+
+	POSTGRES_MAXOPEN, PMAXOPENOK := os.LookupEnv("POSTGRES_MAXOPEN")
+	POSTGRES_MAXIDLE, PMAXIDLEOK := os.LookupEnv("POSTGRES_MAXIDLE")
+	if !PMAXOPENOK {
+		log.Println("POSTGRES_MAXOPEN env var is not set. Defaulting to 16.")
+		POSTGRES_MAXOPEN = "16"
+	}
+	if !PMAXIDLEOK {
+		log.Println("POSTGRES_MAXIDLE env var is not set. Defaulting to 8.")
+		POSTGRES_MAXIDLE = "8"
 	}
 
 	PHOST, PHOSTOK := os.LookupEnv("POSTGRES_HOST")
@@ -27,6 +55,7 @@ func initConfigs() (int64, lib.Database, lib.RedisConfig) {
 	PUSER, PUSEROK := os.LookupEnv("POSTGRES_USER")
 	MAXPEERS := os.Getenv("MAX_PEERS")
 	if MAXPEERS == "" {
+		log.Println("MAX_PEERS env var is not set. Defaulting to 16.")
 		MAXPEERS = "16"
 	}
 
@@ -37,79 +66,56 @@ func initConfigs() (int64, lib.Database, lib.RedisConfig) {
 
 	maxPeers, err := strconv.ParseInt(MAXPEERS, 10, 64)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to parse MAX_PEERS env var into an int.")
 	}
 
-	dbconfig := lib.Database{
+	redisMaxOpen, err := strconv.Atoi(REDIS_MAXOPEN)
+	if err != nil {
+		log.Fatalf("Failed to parse REDIS_MAXOPEN env var into an int.")
+	}
+	redisMaxIdle, err := strconv.Atoi(REDIS_MAXIDLE)
+	if err != nil {
+		log.Fatalf("Failed to parse REDIS_MAXIDLE env var into an int.")
+	}
+
+	postgresMaxOpen, err := strconv.Atoi(POSTGRES_MAXOPEN)
+	if err != nil {
+		log.Fatalf("Failed to parse POSTGRES_MAXOPEN env var into an int.")
+	}
+	postgresMaxIdle, err := strconv.Atoi(POSTGRES_MAXIDLE)
+	if err != nil {
+		log.Fatalf("Failed to parse POSTGRES_MAXIDLE env var into an int.")
+	}
+
+	apiPort, err := strconv.ParseUint(API_PORT, 10, 16)
+	if err != nil {
+		log.Fatalf("Failed to parse API_PORT env var into a uint16.")
+	}
+
+	dbconfig := lib.DatabaseConfig{
 		Address:  PHOST,
 		Port:     5432,
 		Name:     PDB,
 		Username: PUSER,
 		Password: PPASS,
+		MaxIdle:  postgresMaxIdle,
+		MaxOpen:  postgresMaxOpen,
 	}
 	redisconfig := lib.RedisConfig{
 		RedisUrl: REDIS_URL,
 		Password: REDIS_PASS,
+		MaxIdle:  redisMaxIdle,
+		MaxOpen:  redisMaxOpen,
 	}
-	return maxPeers, dbconfig, redisconfig
-}
-
-func runApiServer(coordinator *lib.Coordinator) {
-	http.HandleFunc("/globalwitness/status", func (w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if coordinator == nil {
-			w.WriteHeader(500)
-			_, _ = w.Write([]byte("{\"error\":\"coordinator is nil\"}"))
-			return
-		}
-		serialized, err := json.Marshal(coordinator.Summary())
-		if err != nil {
-			w.WriteHeader(500)
-			_, _ = w.Write([]byte(fmt.Sprintf("{\"error\":\"%s\"}", err.Error())))
-		}
-		w.WriteHeader(200)
-		_, _ = w.Write(serialized)
-	})
-
-	http.HandleFunc("/globalwitness/peers", func (w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if coordinator == nil {
-			w.WriteHeader(500)
-			_, _ = w.Write([]byte("{\"error\":\"coordinator is nil\"}"))
-			return
-		}
-
-		active, err := coordinator.RedisConn.GetFullKeys("active_*")
-		if err != nil {
-			w.WriteHeader(500)
-			_, _ = w.Write([]byte(fmt.Sprintf("{\"error\":\"%s\"}", err.Error())))
-		}
-
-		ret := struct {
-			Info	lib.CoordinatorStateSnapshot
-			Peers   []string
-		} {
-			Info: coordinator.Summary(),
-			Peers: make([]string, 0),
-		}
-
-		for _, connstring := range active {
-			ret.Peers = append(ret.Peers, strings.Replace(connstring, "active_", "", 1))
-		}
-		serialized, err := json.Marshal(ret)
-		w.WriteHeader(200)
-		_, _ = w.Write(serialized)
-	})
-
-
-	// Low priority TODO -- make this configurable by env vars
-	log.Println("API Server begins listening.")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
-		log.Fatalln("Failed to bind API Server to port 8080:", err.Error())
+	apiconfig := lib.APIServerConfig{
+		Port:        uint16(apiPort),
+		BindAddress: API_BINDING,
 	}
+	return maxPeers, dbconfig, redisconfig, apiconfig
 }
 
 func main() {
+	rand.Seed(time.Now().UnixNano())
 	instance_name := sillyname.GenerateStupidName()
 
 	log.Println("#################################")

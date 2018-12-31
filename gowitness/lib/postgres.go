@@ -15,13 +15,13 @@ type PostgresStorage struct {
 	db           *dbr.Connection
 }
 
-func (storage *PostgresStorage) Connect() error {
+func (storage *PostgresStorage) Connect(maxOpen, maxIdle int) error {
 	if storage.db != nil {
 		return fmt.Errorf("this PostgresStorage is already connected")
 	}
 	db, err := dbr.Open("postgres", storage.connString, nil)
-	db.SetMaxOpenConns(64)
-	db.SetMaxIdleConns(8)
+	db.SetMaxOpenConns(maxOpen)
+	db.SetMaxIdleConns(maxIdle)
 	if err != nil {
 		return err
 	}
