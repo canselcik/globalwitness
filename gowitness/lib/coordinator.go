@@ -45,6 +45,7 @@ type Coordinator struct {
 	SuccessCounter               *ratecounter.RateCounter
 	VoluntaryDisconnectCounter   *ratecounter.RateCounter
 	AttemptCounter               *ratecounter.RateCounter
+	SkippedDueToInNetworkCounter *ratecounter.RateCounter
 	DatabaseConfig
 	RedisConfig
 }
@@ -97,6 +98,7 @@ func (cd *Coordinator) Run() bool {
 			continue
 		}
 		if cd.RedisConn.CheckActiveTag(randomNode.ConnString) {
+			cd.SkippedDueToInNetworkCounter.Incr(1)
 			continue
 		}
 
@@ -111,14 +113,15 @@ func (cd *Coordinator) Status() uint32 {
 }
 
 type CoordinatorStateSnapshot struct {
-	Name                        string
-	Status                      string
-	PeerCount                   int64
-	MaxPeers                    int64
-	AttemptCounter              int64
-	FailCounter                 int64
-	VoluntaryDisconnectCounter  int64
-	SuccessCounter              int64
+	Name                         string
+	Status                       string
+	PeerCount                    int64
+	MaxPeers                     int64
+	AttemptCounter               int64
+	FailCounter                  int64
+	VoluntaryDisconnectCounter   int64
+	SuccessCounter               int64
+	SkippedDueToInNetworkCounter int64
 }
 
 func executionStatusAsString(status uint32) string {
@@ -144,6 +147,7 @@ func (cd *Coordinator) Summary() CoordinatorStateSnapshot {
 		cd.FailCounter.Rate(),
 		cd.VoluntaryDisconnectCounter.Rate(),
 		cd.SuccessCounter.Rate(),
+		cd.SkippedDueToInNetworkCounter.Rate(),
 	}
 }
 
@@ -182,6 +186,7 @@ func MakeCoordinator(name string, maxPeers int64, database DatabaseConfig, redis
 		AttemptCounter: ratecounter.NewRateCounter(time.Minute),
 		SuccessCounter: ratecounter.NewRateCounter(time.Minute),
 		VoluntaryDisconnectCounter: ratecounter.NewRateCounter(time.Minute),
+		SkippedDueToInNetworkCounter: ratecounter.NewRateCounter(time.Minute),
 		Guard: nil,
 	}
 }
