@@ -25,8 +25,8 @@ func initConfigs() (int64, lib.DatabaseConfig, lib.RedisConfig, lib.APIServerCon
 	REDIS_MAXOPEN, RMAXOPENOK := os.LookupEnv("REDIS_MAXOPEN")
 	REDIS_MAXIDLE, RMAXIDLEOK := os.LookupEnv("REDIS_MAXIDLE")
 	if !RMAXOPENOK {
-		log.Println("REDIS_MAXOPEN env var is not set. Defaulting to 16.")
-		REDIS_MAXOPEN = "16"
+		log.Println("REDIS_MAXOPEN env var is not set. Defaulting to 0.")
+		REDIS_MAXOPEN = "0"
 	}
 	if !RMAXIDLEOK {
 		log.Println("REDIS_MAXIDLE env var is not set. Defaulting to 8.")

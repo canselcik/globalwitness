@@ -303,6 +303,7 @@ func (storage *RedisStorage) AcquireLock(resource string, expiryMillis int, leas
 		}
 	}
 	_, err := conn.Do("PSETEX", name, expiryMillis, 1)
+	_ = conn.Close()
 	return err == nil
 }
 
@@ -314,6 +315,7 @@ func (storage *RedisStorage) SetActiveTag(resource string, expirySeconds int) bo
 	conn := storage.GetConn()
 	name := fmt.Sprintf("active_%s", resource)
 	_, err := conn.Do("SETEX", name, expirySeconds, 1)
+	_ = conn.Close()
 	return err == nil
 }
 
@@ -321,5 +323,6 @@ func (storage *RedisStorage) CheckActiveTag(resource string) bool {
 	conn := storage.GetConn()
 	name := fmt.Sprintf("active_%s", resource)
 	_, err := redis.Int(conn.Do("GET", name))
+	_ = conn.Close()
 	return err == nil
 }

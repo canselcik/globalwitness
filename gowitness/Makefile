@@ -1,10 +1,15 @@
-all: run
-run: build
-	POSTGRES_HOST=globalwitness.cxl4vro2ssou.us-east-1.rds.amazonaws.com \
-POSTGRES_PASS=yvpd7zt82kMk1g3Co92PVKRGjHF2FYEUi0rta \
-POSTGRES_DB=globalwitness \
-POSTGRES_USER=globalwitness \
-MAX_PEERS=120000 ./globalwitness
+IMAGE_NAME=globalwitness
+RELEASE=latest
+REPO=376692230222.dkr.ecr.us-east-2.amazonaws.com
+
+all: build
+
+docker:
+	docker build -t $(IMAGE_NAME) .
+
+release: docker
+	docker tag $(IMAGE_NAME):$(RELEASE) $(REPO)/$(IMAGE_NAME):$(RELEASE)
+	docker push $(REPO)/$(IMAGE_NAME):$(RELEASE)
 
 build: clean
 	go build
