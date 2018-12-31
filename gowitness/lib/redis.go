@@ -20,6 +20,15 @@ func (storage *RedisStorage) GetConn() redis.Conn {
 	return storage.db.Get()
 }
 
+func (storage *RedisStorage) FlushDB() {
+	conn := storage.db.Get()
+	_, err := redis.String(conn.Do("FLUSHDB"))
+	if err != nil {
+		fmt.Printf("cannot 'FLUSHDB' db: %s\n", err.Error())
+	}
+	_ = conn.Close()
+}
+
 func (storage *RedisStorage) Connect() {
 	storage.db = &redis.Pool{
 		MaxIdle:     64,

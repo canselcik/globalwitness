@@ -123,12 +123,14 @@ func main() {
 	log.Println("#  ( instance:", instance_name, ")")
 	log.Println("#################################")
 
-	maxPeers, dbConfig, redisConfig := initConfigs()
+	maxPeers, dbConfig, redisConfig, apiConfig := initConfigs()
 
-	// We ensure we have exactly MAXPEERS of these running at a time
+	// We ensure we have exactly maxPeers of these running at a time
 	cd := lib.MakeCoordinator(instance_name, maxPeers, dbConfig, redisConfig)
 
 	// Start HTTP server for debugging and inspection
-	go runApiServer(cd)
+	go lib.RunAPIServer(cd, apiConfig)
+
+	// Run the coordinator on the main thread
 	cd.Run()
 }
