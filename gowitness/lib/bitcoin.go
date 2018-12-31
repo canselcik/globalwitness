@@ -110,7 +110,6 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 			continue
 		}
 
-		// TODO: Add to nodehistory about this nodes discovery
 		// TODO: Check perhaps here if this node is reachable
 		//go handler.testNewAdvertisement(*addr)
 		log.Println("Added new unconfirmed node:", recommendedNode.ConnString)
@@ -139,7 +138,7 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 
 	// TODO Have a better mechanism than disconnect after 5 mins w/o configuration
 	var doneChan chan struct{}
-	if time.Now().Sub(handler.started) > time.Minute * 5 {
+	if time.Now().Sub(handler.started) > time.Hour {
 		doneChan = make(chan struct{})
 	}
 	p.QueueMessage(myaddr, doneChan)
