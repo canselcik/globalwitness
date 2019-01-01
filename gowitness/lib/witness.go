@@ -274,6 +274,13 @@ type WitnessConfig struct {
 	// TrickleInterval is the duration of the ticker which trickles down the
 	// inventory to a peer.
 	TrickleInterval time.Duration
+
+	// Bypass trickle queue for block propagation
+	EagerBlockPropagation bool
+
+	// Configure if we will propagate blocks at all. They become too memory intensive for
+	// our terms and purposes at one point
+	PropagateBlocks bool
 }
 
 // minUint32 is a helper function to return the minimum of two uint32s.
@@ -1530,18 +1537,20 @@ out:
 		case iv := <-p.outputInvChan:
 			// No handshake?  They'll find out soon enough.
 			if p.VersionKnown() {
-				// If this is a new block, then we'll blast it
-				// out immediately, sipping the inv trickle
+				// If this is a new block and we are configured to be eager,
+				// then we'll blast it out immediately, sipping the inv trickle
 				// queue.
-				if iv.Type == wire.InvTypeBlock ||
-					iv.Type == wire.InvTypeWitnessBlock {
+				if p.cfg.PropagateBlocks && (iv.Type == wire.InvTypeBlock ||
+					iv.Type == wire.InvTypeWitnessBlock) {
 
-					invMsg := wire.NewMsgInvSizeHint(1)
-					invMsg.AddInvVect(iv)
-					waiting = queuePacket(outMsg{msg: invMsg},
-						pendingMsgs, waiting)
-				} else {
-					invSendQueue.PushBack(iv)
+					if p.cfg.EagerBlockPropagation {
+						invMsg := wire.NewMsgInvSizeHint(1)
+						_ = invMsg.AddInvVect(iv)
+						waiting = queuePacket(outMsg{msg: invMsg},
+							pendingMsgs, waiting)
+					} else {
+						invSendQueue.PushBack(iv)
+					}
 				}
 			}
 

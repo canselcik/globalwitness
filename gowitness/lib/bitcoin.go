@@ -308,15 +308,15 @@ func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage, rs *RedisStorage) *
 		rs:                 rs,
 		lastActivityReport: nil,
 		peerCfg:            &WitnessConfig{
-			UserAgentName:    "Satoshi",
-			UserAgentVersion: "0.17.99",
-			ChainParams:      &chaincfg.MainNetParams,
-			Services:         wire.SFNodeXthin | wire.SFNodeWitness | wire.SFNodeGetUTXO |
-				wire.SFNodeCF | wire.SFNodeBloom | wire.SFNodeBit5 |
-				wire.SFNode2X | wire.SFNodeNetwork,
-			// Trickle slowly on purpose as to not contaminate the data
-			// TODO Clarification needed on this parameter
-			TrickleInterval:  time.Minute * 2,
+			UserAgentName:           "Satoshi",
+			UserAgentVersion:        "0.17.99",
+			ChainParams:             &chaincfg.MainNetParams,
+			Services:                wire.SFNodeXthin | wire.SFNodeWitness | wire.SFNodeGetUTXO |
+				                                        wire.SFNodeCF | wire.SFNodeBloom |
+				                                        wire.SFNodeBit5 | wire.SFNode2X |
+				                                        wire.SFNodeNetwork,
+			EagerBlockPropagation:   false,
+			PropagateBlocks:         false,
 		},
 	}
 }
