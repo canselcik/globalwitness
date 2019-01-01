@@ -237,7 +237,7 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 		}
 
 		if handler.lastActivityReport == nil || time.Now().Sub(*handler.lastActivityReport) > time.Minute {
-			_ = handler.rs.SetActiveTag(handler.nodeInfo.ConnString, 120)
+			_ = handler.rs.SetActiveTag(nil, handler.nodeInfo.ConnString, 120)
 			now := time.Now()
 			handler.lastActivityReport = &now
 		}
@@ -245,7 +245,7 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 
 	onConnFail := func(coord *Coordinator, eventType string, err error) {
 		coord.FailCounter.Incr(1)
-		_ = coord.RedisConn.RemoveActiveTag(handler.nodeInfo.ConnString)
+		_ = coord.RedisConn.RemoveActiveTag(nil, handler.nodeInfo.ConnString)
 
 		msg := ConnectionFailureMetadata{Output:err.Error()}
 		serialized, _ := json.Marshal(&msg)
@@ -312,6 +312,7 @@ func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage, rs *RedisStorage) *
 				wire.SFNodeCF | wire.SFNodeBloom | wire.SFNodeBit5 |
 				wire.SFNode2X | wire.SFNodeNetwork,
 			// Trickle slowly on purpose as to not contaminate the data
+			// TODO Clarification needed on this parameter
 			TrickleInterval:  time.Minute * 2,
 		},
 	}

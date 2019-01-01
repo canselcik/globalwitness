@@ -87,6 +87,7 @@ func (cd *Coordinator) Run() bool {
 	nextNodes := cd.DbConn.GetRandomNodes(0.1)
 
 	cd.ExecutionStatus = Running
+
 	for atomic.LoadUint32(&cd.ExecutionStatus) == Running {
 		currentPeerCount := atomic.LoadInt64(&cd.PeerCount)
 		if currentPeerCount >= cd.MaxPeers {
@@ -104,7 +105,7 @@ func (cd *Coordinator) Run() bool {
 
 		var randomNode *NodeInfo
 		randomNode, nextNodes = &nextNodes[0], nextNodes[1:]
-		if cd.RedisConn.CheckActiveTag(randomNode.ConnString) {
+		if cd.RedisConn.CheckActiveTag(nil, randomNode.ConnString) {
 			cd.SkippedDueToInNetworkCounter.Incr(1)
 			continue
 		}

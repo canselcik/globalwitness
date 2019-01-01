@@ -20,8 +20,14 @@ func (storage *RedisStorage) GetConn() redis.Conn {
 	return storage.db.Get()
 }
 
-func (storage *RedisStorage) FlushDB() {
-	conn := storage.db.Get()
+func (storage *RedisStorage) FlushDB(inConn redis.Conn) {
+	// Use the passed in connection, otherwise create your own and then close it if you did
+	conn := inConn
+	if conn == nil {
+		conn = storage.GetConn()
+		defer conn.Close()
+	}
+
 	_, err := redis.String(conn.Do("FLUSHDB"))
 	if err != nil {
 		fmt.Printf("cannot 'FLUSHDB' db: %s\n", err.Error())
@@ -42,12 +48,12 @@ func (storage *RedisStorage) Connect() {
 		   }
 		   if storage.password != "" {
 			   if _, err := c.Do("AUTH", storage.password); err != nil {
-				   c.Close()
+				   _ = c.Close()
 				   return nil, err
 			   }
 		   }
 			if _, err := c.Do("SELECT", 0); err != nil {
-			   c.Close()
+			   _ = c.Close()
 			   return nil, err
 		   }
 		   return c, nil
@@ -62,9 +68,13 @@ func (storage *RedisStorage) Connect() {
 	}
 }
 
-func (storage *RedisStorage) Ping() error {
-	conn := storage.db.Get()
-	defer conn.Close()
+func (storage *RedisStorage) Ping(inConn redis.Conn) error {
+	// Use the passed in connection, otherwise create your own and then close it if you did
+	conn := inConn
+	if conn == nil {
+		conn = storage.GetConn()
+		defer conn.Close()
+	}
 
 	_, err := redis.String(conn.Do("PING"))
 	if err != nil {
@@ -167,11 +177,19 @@ func (storage *RedisStorage) exists(key string) (bool, error) {
 	return ok, err
 }
 
-func (storage *RedisStorage) Delete(key string) error {
-	conn := storage.db.Get()
-	defer conn.Close()
+func (storage *RedisStorage) Delete(inConn redis.Conn, key string) error {
+	// Use the passed in connection if any
+	conn := inConn
+	if conn == nil {
+		conn = storage.GetConn()
+	}
 
 	_, err := conn.Do("DEL", key)
+
+	// If no connection was passed in, close it
+	if inConn == nil {
+		_ = conn.Close()
+	}
 	return err
 }
 
@@ -199,9 +217,13 @@ func (storage *RedisStorage) getKeys(pattern string) ([]string, error) {
 	return keys, nil
 }
 
-func (storage *RedisStorage) GetFullKeys(pattern string) ([]string, error) {
-	conn := storage.db.Get()
-	defer conn.Close()
+func (storage *RedisStorage) GetFullKeys(inConn redis.Conn, pattern string) ([]string, error) {
+	// Use the passed in connection, otherwise create your own and then close it if you did
+	conn := inConn
+	if conn == nil {
+		conn = storage.GetConn()
+		defer conn.Close()
+	}
 
 	arr, err := redis.Strings(conn.Do("KEYS", pattern))
 	if err != nil {
@@ -289,12 +311,17 @@ func (storage *RedisStorage) increment(counterKey string) (int, error) {
 }
 
 
-func (storage *RedisStorage) ReleaseLock(resource string) error {
-	return storage.Delete(fmt.Sprintf("lock_%s", resource))
+func (storage *RedisStorage) ReleaseLock(inConn redis.Conn, resource string) error {
+	return storage.Delete(inConn, fmt.Sprintf("lock_%s", resource))
 }
 
-func (storage *RedisStorage) AcquireLock(resource string, expiryMillis int, leaseExtension bool) bool {
-	conn := storage.GetConn()
+func (storage *RedisStorage) AcquireLock(inConn redis.Conn, resource string, expiryMillis int, leaseExtension bool) bool {
+	// Use the passed in connection if any
+	conn := inConn
+	if conn == nil {
+		conn = storage.GetConn()
+	}
+
 	name := fmt.Sprintf("lock_%s", resource)
 	if !leaseExtension {
 		_, err := redis.Int(conn.Do("GET", name))
@@ -303,26 +330,46 @@ func (storage *RedisStorage) AcquireLock(resource string, expiryMillis int, leas
 		}
 	}
 	_, err := conn.Do("PSETEX", name, expiryMillis, 1)
-	_ = conn.Close()
+
+	// If no connection was passed in, close it
+	if inConn == nil {
+		_ = conn.Close()
+	}
 	return err == nil
 }
 
-func (storage *RedisStorage) RemoveActiveTag(resource string) error {
-	return storage.Delete(fmt.Sprintf("active_%s", resource))
+func (storage *RedisStorage) RemoveActiveTag(inConn redis.Conn, resource string) error {
+	return storage.Delete(inConn, fmt.Sprintf("active_%s", resource))
 }
 
-func (storage *RedisStorage) SetActiveTag(resource string, expirySeconds int) bool {
-	conn := storage.GetConn()
+func (storage *RedisStorage) SetActiveTag(inConn redis.Conn, resource string, expirySeconds int) bool {
+	// Use the passed in connection if any
+	conn := inConn
+	if conn == nil {
+		conn = storage.GetConn()
+	}
 	name := fmt.Sprintf("active_%s", resource)
 	_, err := conn.Do("SETEX", name, expirySeconds, 1)
-	_ = conn.Close()
+
+	// If no connection was passed in, close it
+	if inConn == nil {
+		_ = conn.Close()
+	}
 	return err == nil
 }
 
-func (storage *RedisStorage) CheckActiveTag(resource string) bool {
-	conn := storage.GetConn()
+func (storage *RedisStorage) CheckActiveTag(inConn redis.Conn, resource string) bool {
+	// Use the passed in connection if any
+	conn := inConn
+	if conn == nil {
+		conn = storage.GetConn()
+	}
 	name := fmt.Sprintf("active_%s", resource)
 	_, err := redis.Int(conn.Do("GET", name))
-	_ = conn.Close()
+
+	// If no connection was passed in, close it
+	if inConn == nil {
+		_ = conn.Close()
+	}
 	return err == nil
 }

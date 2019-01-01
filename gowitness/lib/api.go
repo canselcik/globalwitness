@@ -38,7 +38,7 @@ func RunAPIServer(coordinator *Coordinator, config APIServerConfig) {
 			return
 		}
 
-		coordinator.RedisConn.FlushDB()
+		coordinator.RedisConn.FlushDB(nil)
 
 		w.WriteHeader(200)
 		_, _ = w.Write([]byte("{\"result\":\"success\"}"))
@@ -52,7 +52,7 @@ func RunAPIServer(coordinator *Coordinator, config APIServerConfig) {
 			return
 		}
 
-		active, err := coordinator.RedisConn.GetFullKeys("active_*")
+		active, err := coordinator.RedisConn.GetFullKeys(nil, "active_*")
 		if err != nil {
 			w.WriteHeader(500)
 			_, _ = w.Write([]byte("{\"result\":\"error\",\"error\":\"%s\"}"))
