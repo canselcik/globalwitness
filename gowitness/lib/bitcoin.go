@@ -154,6 +154,37 @@ func (handler *BitcoinHandler) onAddrHandler(p *Witness, msg *wire.MsgAddr) {
 	}
 }
 
+func (handler *BitcoinHandler) onInvHandler(p *Witness, msg *wire.MsgInv) {
+	invSize := len(msg.InvList)
+	if invSize == 0 {
+		return
+	}
+	for _, inv := range msg.InvList {
+		switch t := inv.Type; t {
+		case wire.InvTypeTx:
+			//log.Println("->Tx", inv.Hash.String())
+		case wire.InvTypeBlock:
+			log.Println("->Block", inv.Hash.String(), "from", handler.nodeInfo.ConnString)
+
+			req := wire.NewMsgGetData()
+			_ = req.AddInvVect(inv)
+			p.QueueMessage(req, nil)
+		case wire.InvTypeError:
+			log.Println("->Error", inv.Hash.String())
+		case wire.InvTypeFilteredBlock:
+			log.Println("->FilteredBlock", inv.Hash.String())
+		case wire.InvTypeWitnessBlock:
+			log.Println("->WitnessBlock", inv.Hash.String())
+		case wire.InvTypeFilteredWitnessBlock:
+			log.Println("->FilteredWitnessBlock", inv.Hash.String())
+		case wire.InvTypeWitnessTx:
+			log.Println("->WitnessTx", inv.Hash.String())
+		default:
+			log.Println("->Unknown inventory type", inv.Type, "hash", inv.Hash)
+		}
+	}
+}
+
 type ConnectionFailureMetadata struct {
 	Output string
 }
@@ -198,35 +229,7 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 		log.Println("MsgReject:", *msg)
 	}
 	handler.peerCfg.Listeners.OnInv = func(p *Witness, msg *wire.MsgInv) {
-		invSize := len(msg.InvList)
-		if invSize == 0 {
-			return
-		}
-		for _, inv := range msg.InvList {
-			switch t := inv.Type; t {
-			case wire.InvTypeTx:
-				break
-				//log.Println("->Tx", inv.Hash.String())
-			case wire.InvTypeBlock:
-				log.Println("->Block", inv.Hash.String(), "from", handler.nodeInfo.ConnString)
-
-				req := wire.NewMsgGetData()
-				_ = req.AddInvVect(inv)
-				p.QueueMessage(req, nil)
-			case wire.InvTypeError:
-				log.Println("->Error", inv.Hash.String())
-			case wire.InvTypeFilteredBlock:
-				log.Println("->FilteredBlock", inv.Hash.String())
-			case wire.InvTypeWitnessBlock:
-				log.Println("->WitnessBlock", inv.Hash.String())
-			case wire.InvTypeFilteredWitnessBlock:
-				log.Println("->FilteredWitnessBlock", inv.Hash.String())
-			case wire.InvTypeWitnessTx:
-				log.Println("->WitnessTx", inv.Hash.String())
-			default:
-				log.Println("->Unknown inventory type", inv.Type, "hash", inv.Hash)
-			}
-		}
+		handler.onInvHandler(p, msg)
 	}
 	handler.peerCfg.Listeners.OnMemPool = func(p *Witness, msg *wire.MsgMemPool) {
 		log.Println("MsgMemPool:", msg.Command())
