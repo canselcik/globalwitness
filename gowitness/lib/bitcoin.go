@@ -19,8 +19,8 @@ type BitcoinHandler struct {
 	nodeInfo           *NodeInfo
 	db                 *PostgresStorage
 	rs                 *RedisStorage
-	peerCfg            *peer.Config
-	peerInstance       *peer.Peer
+	peerCfg            *WitnessConfig
+	peerInstance       *Witness
 	started            time.Time
 	lastActivityReport *time.Time
 }
@@ -79,7 +79,7 @@ func (handler *BitcoinHandler) testNewAdvertisement(addr wire.NetAddress) {
 		return nil
 	}
 
-	newPeer, err := peer.NewOutboundPeer(handler.peerCfg, connstring)
+	newPeer, err := NewOutboundPeer(handler.peerCfg, connstring)
 	if err != nil {
 		return
 	}
@@ -92,7 +92,7 @@ func (handler *BitcoinHandler) testNewAdvertisement(addr wire.NetAddress) {
 
 
 // OnAddr is invoked when a peer receives an addr bitcoin message.
-func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
+func (handler *BitcoinHandler) onAddrHandler(p *Witness, msg *wire.MsgAddr) {
 	for _, addr := range msg.AddrList {
 		if addr.Port == 0 {
 			addr.Port = 8333
@@ -165,16 +165,16 @@ type SessionBeginMetadata struct {
 func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 	handler.started = time.Now()
 
-	handler.peerCfg.Listeners.OnAddr = func(p *peer.Peer, msg *wire.MsgAddr) {
+	handler.peerCfg.Listeners.OnAddr = func(p *Witness, msg *wire.MsgAddr) {
 		handler.onAddrHandler(p, msg)
 	}
-	handler.peerCfg.Listeners.OnTx = func(p *peer.Peer, msg *wire.MsgTx) {
+	handler.peerCfg.Listeners.OnTx = func(p *Witness, msg *wire.MsgTx) {
 		log.Println("MsgTx:", *msg)
 	}
-	handler.peerCfg.Listeners.OnBlock = func(p *peer.Peer, msg *wire.MsgBlock, buf []byte) {
+	handler.peerCfg.Listeners.OnBlock = func(p *Witness, msg *wire.MsgBlock, buf []byte) {
 		log.Println("MsgBlock: size:", len(buf), "hash:", msg.BlockHash().String(), "timestamp:", msg.Header.Timestamp.String())
 	}
-	handler.peerCfg.Listeners.OnVersion = func(p *peer.Peer, msg *wire.MsgVersion) *wire.MsgReject {
+	handler.peerCfg.Listeners.OnVersion = func(p *Witness, msg *wire.MsgVersion) *wire.MsgReject {
 		handler.nodeInfo.Version = msg.UserAgent
 		handler.nodeInfo.LastSeen = time.Now()
 
@@ -188,16 +188,16 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 		)
 		return nil
 	}
-	handler.peerCfg.Listeners.OnVerAck = func(p *peer.Peer, msg *wire.MsgVerAck) {
+	handler.peerCfg.Listeners.OnVerAck = func(p *Witness, msg *wire.MsgVerAck) {
 		//log.Println("Handshake completed with", handler.nodeInfo.ConnString, "(VerAck)")
 		if !handler.db.UpdateAllNode(handler.nodeInfo) {
 			log.Println("Failed to update node session time for", handler.nodeInfo.ConnString)
 		}
 	}
-	handler.peerCfg.Listeners.OnReject = func(p *peer.Peer, msg *wire.MsgReject) {
+	handler.peerCfg.Listeners.OnReject = func(p *Witness, msg *wire.MsgReject) {
 		log.Println("MsgReject:", *msg)
 	}
-	handler.peerCfg.Listeners.OnInv = func(p *peer.Peer, msg *wire.MsgInv) {
+	handler.peerCfg.Listeners.OnInv = func(p *Witness, msg *wire.MsgInv) {
 		invSize := len(msg.InvList)
 		if invSize == 0 {
 			return
@@ -228,10 +228,10 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 			}
 		}
 	}
-	handler.peerCfg.Listeners.OnMemPool = func(p *peer.Peer, msg *wire.MsgMemPool) {
+	handler.peerCfg.Listeners.OnMemPool = func(p *Witness, msg *wire.MsgMemPool) {
 		log.Println("MsgMemPool:", msg.Command())
 	}
-	handler.peerCfg.Listeners.OnRead = func(p *peer.Peer, bytesRead int, msg wire.Message, err error) {
+	handler.peerCfg.Listeners.OnRead = func(p *Witness, bytesRead int, msg wire.Message, err error) {
 		if err != nil {
 			return
 		}
@@ -265,7 +265,7 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 		return err
 	}
 
-	p, err := peer.NewOutboundPeer(handler.peerCfg, handler.nodeInfo.ConnString)
+	p, err := NewOutboundPeer(handler.peerCfg, handler.nodeInfo.ConnString)
 	if err != nil {
 		onConnFail(cd, "protocol_error", err)
 		return err
@@ -304,7 +304,7 @@ func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage, rs *RedisStorage) *
 		db:                 db,
 		rs:                 rs,
 		lastActivityReport: nil,
-		peerCfg:            &peer.Config{
+		peerCfg:            &WitnessConfig{
 			UserAgentName:    "Satoshi",
 			UserAgentVersion: "0.17.99",
 			ChainParams:      &chaincfg.MainNetParams,
