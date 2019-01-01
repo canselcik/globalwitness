@@ -81,7 +81,7 @@ func (cd *Coordinator) Run() bool {
 
 	// Connect to Redis
 	cd.RedisConn = MakeRedisStorage(cd.RedisConfig.RedisUrl, cd.RedisConfig.Password)
-	cd.RedisConn.Connect()
+	cd.RedisConn.Connect(cd.RedisConfig.MaxOpen, cd.RedisConfig.MaxIdle)
 	log.Println("Redis connection established.")
 
 	nextNodes := cd.DbConn.GetRandomNodes(0.1)

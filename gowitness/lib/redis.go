@@ -35,10 +35,10 @@ func (storage *RedisStorage) FlushDB(inConn redis.Conn) {
 	_ = conn.Close()
 }
 
-func (storage *RedisStorage) Connect() {
+func (storage *RedisStorage) Connect(maxOpen, maxIdle int) {
 	storage.db = &redis.Pool{
-		MaxIdle:     64,
-		MaxActive:   0,
+		MaxIdle:     maxIdle,
+		MaxActive:   maxOpen,
 		Wait:        true,
 		IdleTimeout: 240 * time.Second,
 		Dial: func () (redis.Conn, error) {
@@ -52,10 +52,10 @@ func (storage *RedisStorage) Connect() {
 				   return nil, err
 			   }
 		   }
-			if _, err := c.Do("SELECT", 0); err != nil {
-			   _ = c.Close()
-			   return nil, err
-		   }
+		   //if _, err := c.Do("SELECT", 0); err != nil {
+		   //	_ = c.Close()
+		   //	return nil, err
+		   //}
 		   return c, nil
 	    },
 		TestOnBorrow: func(c redis.Conn, t time.Time) error {
