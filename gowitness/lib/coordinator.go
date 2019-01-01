@@ -84,6 +84,8 @@ func (cd *Coordinator) Run() bool {
 	cd.RedisConn.Connect()
 	log.Println("Redis connection established.")
 
+	nextNodes := cd.DbConn.GetRandomNodes(0.1)
+
 	cd.ExecutionStatus = Running
 	for atomic.LoadUint32(&cd.ExecutionStatus) == Running {
 		currentPeerCount := atomic.LoadInt64(&cd.PeerCount)
@@ -92,11 +94,16 @@ func (cd *Coordinator) Run() bool {
 			continue
 		}
 
-		randomNode := cd.DbConn.GetRandomNode()
-		if randomNode == nil {
-			log.Println("Got nil for random node")
+		if nextNodes == nil || len(nextNodes) == 0 {
+			nextNodes = cd.DbConn.GetRandomNodes(0.1)
+		}
+
+		if len(nextNodes) == 0 {
 			continue
 		}
+
+		var randomNode *NodeInfo
+		randomNode, nextNodes = &nextNodes[0], nextNodes[1:]
 		if cd.RedisConn.CheckActiveTag(randomNode.ConnString) {
 			cd.SkippedDueToInNetworkCounter.Incr(1)
 			continue

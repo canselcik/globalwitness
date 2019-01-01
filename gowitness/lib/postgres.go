@@ -190,6 +190,19 @@ func (storage *PostgresStorage) UpdateAllNode(node *NodeInfo) bool {
 	return true
 }
 
+func (storage *PostgresStorage) GetRandomNodes(percentage float32) []NodeInfo {
+	session := storage.db.NewSession(nil)
+	entries := make([]NodeInfo, 0)
+
+	_, err := session.SelectBySql("SELECT * FROM nodes TABLESAMPLE BERNOULLI(?)", percentage).Load(&entries)
+	if err != nil {
+		log.Println("Error while executing the query in GetRandomNodes(...):", err.Error())
+		return nil
+	}
+
+	return entries
+}
+
 func (storage *PostgresStorage) GetRandomNode() *NodeInfo {
 	session := storage.db.NewSession(nil)
 	node := NodeInfo{}

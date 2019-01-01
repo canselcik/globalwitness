@@ -117,6 +117,9 @@ func (handler *BitcoinHandler) onAddrHandler(p *peer.Peer, msg *wire.MsgAddr) {
 
 	// Just tell the peer about a few nodes -- hacky for now since it isnt the focus
 	randomNode := handler.db.GetRandomNode()
+	if randomNode == nil {
+		return
+	}
 	ip, port, err := net.SplitHostPort(randomNode.ConnString)
 	if err != nil {
 		log.Println("An error occurred while splitting host-port for sending to peer:", err.Error())
