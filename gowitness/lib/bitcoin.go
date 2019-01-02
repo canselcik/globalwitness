@@ -166,11 +166,18 @@ func (handler *BitcoinHandler) onInvHandler(p *Witness, msg *wire.MsgInv) {
 			//log.Println("->Tx", inv.Hash.String())
 		case wire.InvTypeBlock:
 			log.Println("->Block", inv.Hash.String(), "from", handler.nodeInfo.ConnString)
+			gh := wire.NewMsgGetHeaders()
+			err := gh.AddBlockLocatorHash(&inv.Hash)
+			if err != nil {
+				log.Println("Error creating getheaders message:", err.Error())
+			} else {
+				p.QueueMessage(gh, nil)
+			}
 			if handler.requestBlockInv {
 				req := wire.NewMsgGetData()
 				err := req.AddInvVect(inv)
 				if err != nil {
-					log.Println("Error while requesting block data from peer:", err.Error())
+					log.Println("Error creating getdata inventory while requesting block data from peer:", err.Error())
 					continue
 				}
 				p.QueueMessage(req, nil)
@@ -208,8 +215,17 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 	handler.peerCfg.Listeners.OnTx = func(p *Witness, msg *wire.MsgTx) {
 		log.Println("MsgTx:", *msg)
 	}
+	handler.peerCfg.Listeners.OnInv = func(p *Witness, msg *wire.MsgInv) {
+		handler.onInvHandler(p, msg)
+	}
 	handler.peerCfg.Listeners.OnBlock = func(p *Witness, msg *wire.MsgBlock, buf []byte) {
 		log.Println("MsgBlock: size:", len(buf), "hash:", msg.BlockHash().String(), "timestamp:", msg.Header.Timestamp.String())
+	}
+	handler.peerCfg.Listeners.OnHeaders = func(p *Witness, msg *wire.MsgHeaders) {
+		for i, header := range msg.Headers {
+			log.Printf("Header %d: %s [version=%d, prev=%s, merkleroot=%s, time=%s, difficulty=%d, nonce=%d]\n", i,
+				header.BlockHash().String(), header.Version, header.PrevBlock.String(), header.MerkleRoot.String(), header.Timestamp.String(), header.Bits, header.Nonce)
+		}
 	}
 	handler.peerCfg.Listeners.OnVersion = func(p *Witness, msg *wire.MsgVersion) *wire.MsgReject {
 		handler.nodeInfo.Version = msg.UserAgent
@@ -230,12 +246,11 @@ func (handler *BitcoinHandler) Run(cd *Coordinator) error {
 		if !handler.db.UpdateAllNode(handler.nodeInfo) {
 			log.Println("Failed to update node session time for", handler.nodeInfo.ConnString)
 		}
+
+		handler.peerInstance.QueueMessage(wire.NewMsgSendHeaders(), nil)
 	}
 	handler.peerCfg.Listeners.OnReject = func(p *Witness, msg *wire.MsgReject) {
 		log.Println("MsgReject:", *msg)
-	}
-	handler.peerCfg.Listeners.OnInv = func(p *Witness, msg *wire.MsgInv) {
-		handler.onInvHandler(p, msg)
 	}
 	handler.peerCfg.Listeners.OnMemPool = func(p *Witness, msg *wire.MsgMemPool) {
 		log.Println("MsgMemPool:", msg.Command())
@@ -316,6 +331,7 @@ func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage, rs *RedisStorage) *
 		requestBlockInv:    false,
 		peerCfg:            &WitnessConfig{
 			UserAgentName:           "Satoshi",
+
 			UserAgentVersion:        "0.17.99",
 			ChainParams:             &chaincfg.MainNetParams,
 			Services:                wire.SFNodeXthin | wire.SFNodeWitness | wire.SFNodeGetUTXO |
