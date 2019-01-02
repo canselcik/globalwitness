@@ -20,6 +20,7 @@ type BitcoinHandler struct {
 	db                 *PostgresStorage
 	rs                 *RedisStorage
 	peerCfg            *WitnessConfig
+	requestBlockInv    bool
 	peerInstance       *Witness
 	started            time.Time
 	lastActivityReport *time.Time
@@ -139,7 +140,7 @@ func (handler *BitcoinHandler) onAddrHandler(p *Witness, msg *wire.MsgAddr) {
 	})
 	_ = myaddr.AddAddress(p.NA())
 
-	// TODO Have a better mechanism than disconnect after 5 mins w/o configuration
+	// TODO Have a better mechanism than disconnect after 1hr w/o configuration
 	var doneChan chan struct{}
 	if time.Now().Sub(handler.started) > time.Hour {
 		doneChan = make(chan struct{})
@@ -165,10 +166,15 @@ func (handler *BitcoinHandler) onInvHandler(p *Witness, msg *wire.MsgInv) {
 			//log.Println("->Tx", inv.Hash.String())
 		case wire.InvTypeBlock:
 			log.Println("->Block", inv.Hash.String(), "from", handler.nodeInfo.ConnString)
-
-			req := wire.NewMsgGetData()
-			_ = req.AddInvVect(inv)
-			p.QueueMessage(req, nil)
+			if handler.requestBlockInv {
+				req := wire.NewMsgGetData()
+				err := req.AddInvVect(inv)
+				if err != nil {
+					log.Println("Error while requesting block data from peer:", err.Error())
+					continue
+				}
+				p.QueueMessage(req, nil)
+			}
 		case wire.InvTypeError:
 			log.Println("->Error", inv.Hash.String())
 		case wire.InvTypeFilteredBlock:
@@ -307,6 +313,7 @@ func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage, rs *RedisStorage) *
 		db:                 db,
 		rs:                 rs,
 		lastActivityReport: nil,
+		requestBlockInv:    false,
 		peerCfg:            &WitnessConfig{
 			UserAgentName:           "Satoshi",
 			UserAgentVersion:        "0.17.99",
@@ -317,6 +324,7 @@ func MakeBitcoinHandler(node *NodeInfo, db *PostgresStorage, rs *RedisStorage) *
 				                                        wire.SFNodeNetwork,
 			EagerBlockPropagation:   false,
 			PropagateBlocks:         false,
+			TrickleInterval:         time.Minute * 2,
 		},
 	}
 }

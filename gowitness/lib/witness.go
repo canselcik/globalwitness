@@ -1163,6 +1163,7 @@ out:
 				// response map.  Since certain commands expect
 				// one of a group of responses, remove
 				// everything in the expected group accordingly.
+				// TODO Fallthrough's here do look sketchy
 				switch msgCmd := msg.message.Command(); msgCmd {
 				case wire.CmdBlock:
 					fallthrough
@@ -1575,7 +1576,7 @@ out:
 					continue
 				}
 
-				invMsg.AddInvVect(iv)
+				_ = invMsg.AddInvVect(iv)
 				if len(invMsg.InvList) >= maxInvTrickleSize {
 					waiting = queuePacket(
 						outMsg{msg: invMsg},
